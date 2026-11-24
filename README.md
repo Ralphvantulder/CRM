@@ -6,7 +6,7 @@ Vormgeving: Moneybird-template (`04_Resources/methods/huisstijl-moneybird.md` in
 
 ## Hoe het werkt
 
-- **Online:** GitHub Pages serveert `index.html` uit deze repository. De pagina bevat geen contactgegevens.
+- **Online:** GitHub Pages serveert `index.html` uit deze repository op https://crm.tulderconsultancy.nl (bestand `CNAME`). De pagina bevat geen contactgegevens.
 - **Data:** Supabase (EU, Frankfurt). Tabellen `party_types`, `parties`, `contacts`, `interactions`, `settings`, elk met Row Level Security: alleen de ingelogde eigenaar ziet en wijzigt zijn eigen rijen. Schema: `crm-schema.sql`.
 - **Inloggen:** e-mail en wachtwoord (Supabase Auth). De publishable key in `index.html` is bedoeld om openbaar te zijn; zonder inlog geeft hij geen toegang.
 - **Actielijst:** contacten met "Herhaaldelijk spreken" aan. Volgende keer = laatste contactmoment + interval (standaard 3 maanden), of later als het contact is uitgesteld. Groepen: te laat, nog geen contactmoment, komende 7 dagen, komende 30 dagen, later. "Gesproken" legt een contactmoment vast en schuift het contact door.
