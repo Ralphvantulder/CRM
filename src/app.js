@@ -1,0 +1,850 @@
+/* ============================================================
+   CRM Ralph — app
+   Data: Supabase (tabellen party_types, parties, contacts, interactions, settings; RLS per eigenaar).
+   Demo: voeg ?demo toe aan de URL voor een lokale versie met voorbeelddata (niets wordt opgeslagen).
+   ============================================================ */
+'use strict';
+
+var CFG_URL = '%%SUPABASE_URL%%';
+var CFG_KEY = '%%SUPABASE_KEY%%';
+var DEFAULT_TYPES = ['Bedrijf', 'Private equity', 'M&A-adviseur', 'Due diligence-adviseur'];
+var KINDS = ['Meeting', 'Call', 'Mail', 'Lunch', 'Overig'];
+var INTERVALS = [1, 2, 3, 4, 6, 9, 12];
+var DEMO = /[?&]demo\b/.test(location.search);
+
+/* ---------- hulpfuncties ---------- */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function $(sel, root) { return (root || document).querySelector(sel); }
+function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+function uid() { return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now()); }
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function isoDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function today() { var d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+function todayIso() { return isoDate(today()); }
+function parseDate(s) { if (!s) return null; var p = String(s).slice(0, 10).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+function addMonths(d, m) {
+  var r = new Date(d.getFullYear(), d.getMonth() + m, 1);
+  var last = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+  r.setDate(Math.min(d.getDate(), last)); return r;
+}
+function addDays(d, n) { var r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
+var MONTHS = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+function fmtDate(d, withYear) {
+  if (!d) return '';
+  if (typeof d === 'string') d = parseDate(d);
+  var y = withYear === undefined ? d.getFullYear() !== today().getFullYear() : withYear;
+  return d.getDate() + ' ' + MONTHS[d.getMonth()] + (y ? ' ' + d.getFullYear() : '');
+}
+function fmtRel(d) {
+  var n = daysBetween(today(), d);
+  if (n === 0) return 'vandaag';
+  if (n === 1) return 'morgen';
+  if (n === -1) return 'gisteren';
+  if (n < 0) return (-n) + ' dagen te laat';
+  if (n < 14) return 'over ' + n + ' dagen';
+  if (n < 60) return 'over ' + Math.round(n / 7) + ' weken';
+  return fmtDate(d);
+}
+function initials(s) { var p = String(s || '').trim().split(/\s+/).filter(Boolean); if (!p.length) return '?'; return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase(); }
+function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function icon(name, cls) { return '<svg class="icon' + (cls ? ' ' + cls : '') + '"><use href="#i-' + name + '"/></svg>'; }
+function plural(n, one, more) { return n + ' ' + (n === 1 ? one : more); }
+function cmpName(a, b) { return norm(a).localeCompare(norm(b), 'nl'); }
+
+/* ============================================================
+   OPSLAG: Supabase of demo
+   ============================================================ */
+var TABLES = ['party_types', 'parties', 'contacts', 'interactions', 'settings'];
+var Store = {
+  sb: null, user: null,
+  init: function () {
+    if (DEMO) return;
+    var url = CFG_URL, key = CFG_KEY;
+    if (url.indexOf('%%') === 0 || key.indexOf('%%') === 0) {
+      try { var c = JSON.parse(localStorage.getItem('crm.config') || 'null'); if (c) { url = c.url; key = c.key; } } catch (e) {}
+    }
+    if (!url || url.indexOf('%%') === 0 || !key || key.indexOf('%%') === 0) return 'config';
+    this.sb = supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'crm.auth' } });
+  },
+  session: async function () {
+    if (DEMO) return { user: { email: 'demo@voorbeeld.nl', id: 'demo' } };
+    var r = await this.sb.auth.getSession(); return r.data.session;
+  },
+  signIn: async function (email, pw) { var r = await this.sb.auth.signInWithPassword({ email: email, password: pw }); if (r.error) throw r.error; return r.data.session; },
+  signUp: async function (email, pw) {
+    var r = await this.sb.auth.signUp({ email: email, password: pw, options: { emailRedirectTo: location.origin + location.pathname } });
+    if (r.error) throw r.error; return r.data;
+  },
+  signOut: async function () { if (!DEMO) await this.sb.auth.signOut(); },
+  loadAll: async function () {
+    if (DEMO) return JSON.parse(JSON.stringify(Demo.data));
+    var self = this, out = {};
+    await Promise.all(TABLES.map(async function (t) {
+      var r = await self.sb.from(t).select('*');
+      if (r.error) throw r.error; out[t] = r.data;
+    }));
+    return out;
+  },
+  insert: async function (t, row) {
+    if (DEMO) { row = Object.assign({ id: uid(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, row); Demo.data[t].push(row); return JSON.parse(JSON.stringify(row)); }
+    var r = await this.sb.from(t).insert(row).select().single(); if (r.error) throw r.error; return r.data;
+  },
+  insertMany: async function (t, rows) {
+    if (!rows.length) return [];
+    if (DEMO) { var self = this; return Promise.all(rows.map(function (r) { return self.insert(t, r); })); }
+    var r = await this.sb.from(t).insert(rows).select(); if (r.error) throw r.error; return r.data;
+  },
+  update: async function (t, id, patch) {
+    if (t !== 'settings') patch.updated_at = new Date().toISOString();
+    if (t === 'party_types' || t === 'interactions') delete patch.updated_at;
+    if (DEMO) { var row = Demo.data[t].find(function (x) { return x.id === id; }); Object.assign(row, patch); return JSON.parse(JSON.stringify(row)); }
+    var r = await this.sb.from(t).update(patch).eq('id', id).select().single(); if (r.error) throw r.error; return r.data;
+  },
+  remove: async function (t, id) {
+    if (DEMO) { Demo.data[t] = Demo.data[t].filter(function (x) { return x.id !== id; }); return; }
+    var r = await this.sb.from(t).delete().eq('id', id); if (r.error) throw r.error;
+  },
+  saveSettings: async function (patch) {
+    patch.updated_at = new Date().toISOString();
+    if (DEMO) { Object.assign(Demo.data.settings[0], patch); return JSON.parse(JSON.stringify(Demo.data.settings[0])); }
+    var r = await this.sb.from('settings').upsert(Object.assign({ owner_id: this.user.id }, patch)).select().single();
+    if (r.error) throw r.error; return r.data;
+  }
+};
+
+/* ---------- demodata: verzonnen namen, alleen in ?demo ---------- */
+var Demo = { data: null, build: function () {
+  var t = DEFAULT_TYPES.map(function (n, i) { return { id: 't' + i, name: n, sort: i }; });
+  var P = [['Voorbeeld Klinieken', 0, 'Utrecht'], ['Noordlicht Capital', 1, 'Amsterdam'], ['Brugwerk Partners', 2, 'Rotterdam'], ['Kade & Co Transaction Services', 3, 'Amsterdam'], ['Heuvelrug Zorggroep', 0, 'Zeist'], ['Delta Equity', 1, 'Den Haag']];
+  var parties = P.map(function (p, i) { return { id: 'p' + i, name: p[0], type_id: 't' + p[1], city: p[2], website: '', notes: '', created_at: '2026-06-01T09:00:00Z', updated_at: '2026-06-01T09:00:00Z' }; });
+  var C = [['Anna', 'de Vries', 'p0', 'CFO', true, 3, -120], ['Bram', 'Jansen', 'p1', 'Partner', true, 3, -95], ['Chris', 'Bakker', 'p1', 'Investment manager', true, 2, -50], ['Daan', 'Visser', 'p2', 'Director', true, 3, -86], ['Eva', 'Smit', 'p3', 'Partner', true, 6, -20], ['Fleur', 'Mulder', 'p4', 'CEO', false, 3, -200], ['Gijs', 'Meijer', 'p5', 'Associate', true, 3, null], ['Hanna', 'Bos', 'p3', 'Manager', false, 3, -10], ['Ivo', 'Peters', 'p5', 'Managing partner', true, 4, -118]];
+  var contacts = [], inter = [];
+  C.forEach(function (c, i) {
+    contacts.push({ id: 'c' + i, first_name: c[0], last_name: c[1], party_id: c[2], role: c[3], email: c[0].toLowerCase() + '@voorbeeld.nl', phone: '', linkedin: '', notes: '', recurring: c[4], interval_months: c[5], snooze_until: null, archived: false, created_at: '2026-05-01T09:00:00Z', updated_at: '2026-05-01T09:00:00Z' });
+    if (c[6] !== null) inter.push({ id: 'x' + i, contact_id: 'c' + i, date: isoDate(addDays(today(), c[6])), kind: KINDS[i % 4], notes: i % 2 ? 'Bijgepraat over de markt en lopende trajecten.' : '', created_at: '2026-05-01T09:00:00Z' });
+  });
+  inter.push({ id: 'x99', contact_id: 'c0', date: isoDate(addDays(today(), -200)), kind: 'Lunch', notes: 'Kennismaking.', created_at: '2026-05-01T09:00:00Z' });
+  this.data = { party_types: t, parties: parties, contacts: contacts, interactions: inter, settings: [{ owner_id: 'demo', default_interval_months: 3 }] };
+} };
+
+/* ============================================================
+   STAAT EN AFGELEIDE GEGEVENS
+   ============================================================ */
+var S = { types: [], parties: [], contacts: [], interactions: [], settings: { default_interval_months: 3 }, loadedAt: 0,
+  q: '', filters: { ctype: '', cparty: '', crec: false, ptype: '', afilter: 'alles' } };
+
+function setData(d) {
+  S.types = d.party_types.slice().sort(function (a, b) { return (a.sort - b.sort) || cmpName(a.name, b.name); });
+  S.parties = d.parties; S.contacts = d.contacts.filter(function (c) { return !c.archived; });
+  S.interactions = d.interactions; S.settings = d.settings[0] || { default_interval_months: 3 };
+  S.loadedAt = Date.now(); index();
+}
+var IX = {};
+function index() {
+  IX.type = {}; S.types.forEach(function (t) { IX.type[t.id] = t; });
+  IX.party = {}; S.parties.forEach(function (p) { IX.party[p.id] = p; });
+  IX.contact = {}; S.contacts.forEach(function (c) { IX.contact[c.id] = c; });
+  IX.byContact = {}; S.interactions.forEach(function (x) { (IX.byContact[x.contact_id] = IX.byContact[x.contact_id] || []).push(x); });
+  Object.keys(IX.byContact).forEach(function (k) { IX.byContact[k].sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.created_at < b.created_at ? 1 : -1); }); });
+  IX.byParty = {}; S.contacts.forEach(function (c) { if (c.party_id) (IX.byParty[c.party_id] = IX.byParty[c.party_id] || []).push(c); });
+}
+function fullName(c) { return [c.first_name, c.last_name].filter(Boolean).join(' '); }
+function partyOf(c) { return c.party_id ? IX.party[c.party_id] : null; }
+function typeOfParty(p) { return p && p.type_id ? IX.type[p.type_id] : null; }
+function lastContact(c) { var l = IX.byContact[c.id]; return l && l.length ? parseDate(l[0].date) : null; }
+/* volgende keer = laatste contact + interval, of later als uitgesteld; zonder contactmoment: geen datum */
+function nextDue(c) {
+  if (!c.recurring) return null;
+  var last = lastContact(c);
+  var due = last ? addMonths(last, c.interval_months || 3) : null;
+  var snooze = parseDate(c.snooze_until);
+  if (snooze && (!due || snooze > due)) due = snooze;
+  return due;
+}
+/* groep in de actielijst */
+function bucket(c) {
+  var d = nextDue(c);
+  if (!d) return 'none';
+  var n = daysBetween(today(), d);
+  if (n < 0) return 'late';
+  if (n <= 7) return 'week';
+  if (n <= 30) return 'month';
+  return 'later';
+}
+var BUCKETS = [
+  { key: 'late', title: 'Te laat', cls: 'due--late' },
+  { key: 'none', title: 'Nog geen contactmoment vastgelegd', cls: 'due--none' },
+  { key: 'week', title: 'Komende 7 dagen', cls: 'due--soon' },
+  { key: 'month', title: 'Komende 30 dagen', cls: 'due--month' },
+  { key: 'later', title: 'Later', cls: 'due--later' }
+];
+function dueLabel(c) {
+  if (!c.recurring) return '<span class="muted">—</span>';
+  var d = nextDue(c), b = bucket(c);
+  if (!d) return '<span class="due due--none">Nog niet gesproken</span>';
+  var cls = { late: 'due--late', week: 'due--soon', month: 'due--month', later: 'due--later' }[b];
+  return '<span class="due ' + cls + '" title="' + esc(fmtDate(d, true)) + '">' + esc(fmtRel(d)) + '</span>';
+}
+function actionContacts() { return S.contacts.filter(function (c) { return c.recurring; }); }
+function countBucket(k) { return actionContacts().filter(function (c) { return bucket(c) === k; }).length; }
+function matchQ(c) {
+  if (!S.q) return true;
+  var p = partyOf(c), q = norm(S.q);
+  return [fullName(c), c.role, c.email, c.phone, c.notes, p && p.name].some(function (v) { return norm(v).indexOf(q) >= 0; });
+}
+function matchQParty(p) {
+  if (!S.q) return true; var q = norm(S.q);
+  if ([p.name, p.city, p.notes].some(function (v) { return norm(v).indexOf(q) >= 0; })) return true;
+  return (IX.byParty[p.id] || []).some(function (c) { return norm(fullName(c)).indexOf(q) >= 0; });
+}
+
+/* ============================================================
+   ROUTER EN VIEWS
+   ============================================================ */
+var NAV = ['overzicht', 'actielijst', 'contacten', 'partijen', 'instellingen'];
+var route = { view: 'overzicht', id: null };
+function go(hash) { if (location.hash === '#' + hash) render(); else location.hash = hash; }
+function parseHash() {
+  var h = location.hash.replace(/^#/, '') || 'overzicht', p = h.split('/');
+  route = { view: p[0], id: p[1] ? decodeURIComponent(p[1]) : null, extra: p[2] ? decodeURIComponent(p[2]) : null };
+  if (['overzicht', 'actielijst', 'contacten', 'partijen', 'instellingen', 'contact', 'partij'].indexOf(route.view) < 0) route.view = 'overzicht';
+}
+function navKey() { return route.view === 'contact' ? 'contacten' : route.view === 'partij' ? 'partijen' : route.view; }
+function render() {
+  parseHash();
+  var main = $('#main');
+  var html;
+  try {
+    html = ({ overzicht: vOverzicht, actielijst: vActielijst, contacten: vContacten, partijen: vPartijen, instellingen: vInstellingen, contact: vContact, partij: vPartij })[route.view]();
+  } catch (e) { console.error(e); html = '<section class="container"><div class="actionbar"><h1 class="actionbar__title">Er ging iets mis</h1></div><div class="alert alert--danger">' + icon('alert', 'alert__icon') + '<div class="alert__body">' + esc(e.message) + '</div></div></section>'; }
+  main.innerHTML = html;
+  var k = navKey();
+  $all('[data-nav]').forEach(function (a) {
+    var on = a.dataset.nav === k;
+    a.classList.toggle(a.classList.contains('tabbar__item') ? 'tabbar__item--active' : 'sidenav__item-link--active', on);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  var late = countBucket('late') + countBucket('week');
+  $all('[data-count="actie"]').forEach(function (b) { b.textContent = late; b.classList.toggle('hidden', !late); });
+  document.title = ({ overzicht: 'Overzicht', actielijst: 'Actielijst', contacten: 'Contacten', partijen: 'Partijen', instellingen: 'Instellingen', contact: 'Contact', partij: 'Partij' })[route.view] + ' · CRM';
+  var focusEl = $('[data-autofocus]', main); if (focusEl) focusEl.focus();
+}
+
+/* ---------- gedeelde bouwstenen ---------- */
+function actionbar(title, actions) { return '<div class="actionbar"><h1 class="actionbar__title">' + esc(title) + '</h1><div class="actionbar__actions">' + (actions || '') + '</div></div>'; }
+function personCell(c, sub) {
+  return '<div class="person"><span class="person__avatar">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub">· ' + esc(sub) + '</span>' : '') + '</span></div>';
+}
+function partyCell(p) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span></div>'; }
+function spokenBtn(c) { return '<button class="btn btn--primary" type="button" data-act="spoken" data-id="' + esc(c.id) + '" title="Contactmoment vastleggen">' + icon('check', 'icon--14') + '<span class="btn__text">Gesproken</span></button>'; }
+function snoozeMenu(c) {
+  return '<div class="drpdwn"><button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn title="Uitstellen">' + icon('clock', 'icon--14') + '<span class="btn__text">Uitstellen</span>' + icon('chevron-down', 'btn__icon-right') + '</button>' +
+    '<div class="drpdwn__menu drpdwn__menu--right" role="menu">' +
+    [[7, '1 week'], [14, '2 weken'], [30, '1 maand'], [91, '3 maanden']].map(function (o) { return '<button class="drpdwn__item" role="menuitem" data-act="snooze" data-id="' + esc(c.id) + '" data-days="' + o[0] + '">' + esc(o[1]) + '</button>'; }).join('') +
+    '<button class="drpdwn__item" role="menuitem" data-act="snooze-date" data-id="' + esc(c.id) + '">' + icon('clock') + 'Kies een datum…</button>' +
+    (c.snooze_until ? '<hr class="drpdwn__divider"><button class="drpdwn__item" role="menuitem" data-act="unsnooze" data-id="' + esc(c.id) + '">Uitstel opheffen</button>' : '') +
+    '</div></div>';
+}
+function emptyState(title, text, btn) { return '<div class="empty"><div class="empty__title">' + esc(title) + '</div><div>' + esc(text) + '</div>' + (btn || '') + '</div>'; }
+function typeOptions(sel, withAll) {
+  return (withAll ? '<option value="">' + esc(withAll) + '</option>' : '') + S.types.map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === sel ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('');
+}
+function partyOptions(sel, withNone) {
+  var ps = S.parties.slice().sort(function (a, b) { return cmpName(a.name, b.name); });
+  return (withNone ? '<option value="">' + esc(withNone) + '</option>' : '') + ps.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('');
+}
+function searchField(id, ph) {
+  return '<span class="text-field filter-search only-m">' + icon('search') + '<input class="text-field__input" type="search" id="' + id + '" data-q placeholder="' + esc(ph) + '" value="' + esc(S.q) + '"></span>';
+}
+
+/* ---------- OVERZICHT ---------- */
+function greeting() { var h = new Date().getHours(); return h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond'; }
+function vOverzicht() {
+  var late = countBucket('late'), week = countBucket('week'), month = countBucket('month'), none = countBucket('none');
+  function fi(icn, cls, label, n, hash) {
+    return '<div class="feed-item"><a class="feed-item__link" href="#' + hash + '"><span class="feed-item__icon ' + cls + '">' + icon(icn) + '</span><span class="feed-item__title">' + esc(label) + '</span><span class="feed-item__detail">' + n + '</span>' + icon('chevron-right', 'feed-item__chevron') + '</a></div>';
+  }
+  var cardAct = '<div class="base-container card"><h2 class="card__title">Actielijst</h2>' +
+    fi('alert', late ? 'feed-item__icon--danger' : '', 'Te laat', late, 'actielijst/late') +
+    fi('clock', week ? 'feed-item__icon--attention' : '', 'Komende 7 dagen', week, 'actielijst/week') +
+    fi('list', '', 'Komende 30 dagen', month, 'actielijst/month') +
+    (none ? fi('user', 'feed-item__icon--neutral', 'Nog geen contactmoment', none, 'actielijst/none') : '') + '</div>';
+  var cardNet = '<div class="base-container card"><h2 class="card__title">Netwerk per partijtype</h2>' +
+    S.types.map(function (t) {
+      var ps = S.parties.filter(function (p) { return p.type_id === t.id; });
+      var n = ps.reduce(function (s, p) { return s + (IX.byParty[p.id] || []).length; }, 0);
+      return '<div class="feed-item"><a class="feed-item__link" href="#partijen/' + esc(t.id) + '"><span class="feed-item__icon">' + icon('building') + '</span><span class="feed-item__title">' + esc(t.name) + ' <small>— ' + plural(ps.length, 'partij', 'partijen') + '</small></span><span class="feed-item__detail">' + n + '</span>' + icon('chevron-right', 'feed-item__chevron') + '</a></div>';
+    }).join('') + '</div>';
+  var recent = S.interactions.filter(function (x) { return IX.contact[x.contact_id]; }).slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.created_at < b.created_at ? 1 : -1); }).slice(0, 4);
+  var cardRecent = '<div class="base-container card"><h2 class="card__title">Recent gesproken</h2>' +
+    (recent.length ? recent.map(function (x) {
+      var c = IX.contact[x.contact_id], p = partyOf(c);
+      return '<div class="feed-item"><a class="feed-item__link" href="#contact/' + esc(c.id) + '"><span class="feed-item__icon feed-item__icon--success">' + icon(kindIcon(x.kind)) + '</span><span class="feed-item__title">' + esc(fullName(c)) + (p ? ' <small>— ' + esc(p.name) + '</small>' : '') + '</span><span class="muted nowrap">' + esc(fmtDate(x.date)) + '</span>' + icon('chevron-right', 'feed-item__chevron') + '</a></div>';
+    }).join('') : '<div class="feed-item"><div class="muted" style="padding:8px 0">Nog geen contactmomenten vastgelegd.</div></div>') + '</div>';
+
+  var upcoming = actionContacts().filter(function (c) { return nextDue(c); }).sort(function (a, b) { return nextDue(a) - nextDue(b); }).slice(0, 8);
+  var list = upcoming.length ? '<div class="base-container feed-list">' + upcoming.map(function (c) {
+    var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
+    return '<div class="feed-entry feed-entry--compact feed-entry--link" data-href="#contact/' + esc(c.id) + '"><span class="feed-entry__avatar">' + esc(initials(fullName(c))) + '</span>' +
+      '<span class="feed-entry__title">' + esc(fullName(c)) + (p ? ' · ' + esc(p.name) : '') + '</span>' +
+      '<span class="feed-entry__subtitle"><span>' + esc([c.role, t && t.name].filter(Boolean).join(' · ')) + (last ? ' · laatst ' + esc(fmtDate(last)) : '') + '</span></span>' +
+      '<span class="feed-entry__side">' + dueLabel(c) + '<span class="hide-m">' + spokenBtn(c) + '</span></span></div>';
+  }).join('') + '</div>' : '<div class="base-container">' + emptyState('Nog niemand op de actielijst', 'Zet bij een contact "Herhaaldelijk spreken" aan, dan verschijnt hij hier.', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') + '</div>';
+
+  return '<section class="container">' + actionbar(greeting() + ' Ralph!', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') +
+    (late ? '<div class="stack"><a class="alert alert--danger" href="#actielijst/late">' + icon('alert', 'alert__icon') + '<span class="alert__body">' + plural(late, 'contact staat', 'contacten staan') + ' te laat op je actielijst.</span>' + icon('chevron-right', 'alert__chevron') + '</a></div>' : '') +
+    '<div class="cards cards--overview">' + cardAct + cardNet + cardRecent + '</div>' +
+    '<div class="actionbar actionbar--section"><h2 class="actionbar__title">Eerstvolgende contacten</h2><div class="actionbar__actions"><a class="btn" href="#actielijst"><span class="btn__text">Hele actielijst</span></a></div></div>' + list + '</section>';
+}
+function kindIcon(k) { return { Meeting: 'briefcase', Call: 'bell', Mail: 'inbox', Lunch: 'gift' }[k] || 'check'; }
+
+/* ---------- ACTIELIJST ---------- */
+function vActielijst() {
+  var f = route.id && ['late', 'none', 'week', 'month', 'later'].indexOf(route.id) >= 0 ? route.id : 'alles';
+  var all = actionContacts().filter(matchQ);
+  var seg = [['alles', 'Alles'], ['late', 'Te laat'], ['week', '7 dagen'], ['month', '30 dagen'], ['later', 'Later']];
+  if (countBucket('none') || f === 'none') seg.splice(2, 0, ['none', 'Nog niet gesproken']);
+  var segHtml = '<div class="radio-group--segmented" role="radiogroup" aria-label="Filter">' + seg.map(function (s) {
+    return '<label class="radio-group__item"><input type="radio" name="afilter" value="' + s[0] + '"' + (s[0] === f ? ' checked' : '') + ' data-afilter><span class="radio-group__label">' + esc(s[1]) + '</span></label>';
+  }).join('') + '</div>';
+  var rows = '';
+  var shown = 0;
+  BUCKETS.forEach(function (b) {
+    if (f !== 'alles' && f !== b.key) return;
+    var list = all.filter(function (c) { return bucket(c) === b.key; }).sort(function (x, y) { return (nextDue(x) || 0) - (nextDue(y) || 0) || cmpName(fullName(x), fullName(y)); });
+    if (!list.length) return;
+    shown += list.length;
+    rows += '<tr class="table__row--subheader"><td colspan="6">' + esc(b.title) + '<span class="badge">' + list.length + '</span></td></tr>';
+    rows += list.map(function (c) {
+      var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
+      return '<tr class="table__row--link" data-href="#contact/' + esc(c.id) + '"><td>' + personCell(c, c.role) + '</td><td class="hide-m">' + esc(p ? p.name : '') + (t ? ' <span class="muted">· ' + esc(t.name) + '</span>' : '') + '</td>' +
+        '<td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td><td class="hide-m muted">' + esc(c.interval_months) + ' mnd' + (c.snooze_until ? ' · uitgesteld' : '') + '</td><td>' + dueLabel(c) + '</td>' +
+        '<td class="cell-actions"><div class="row-actions">' + spokenBtn(c) + snoozeMenu(c) + '</div></td></tr>';
+    }).join('');
+  });
+  var table = shown ? '<div class="table-container"><table class="table table--stack"><colgroup><col><col class="hide-m"><col class="c-date hide-m"><col class="c-num hide-m"><col class="c-due"><col class="c-act"></colgroup>' +
+    '<thead><tr><th>Naam</th><th class="hide-m">Partij</th><th class="hide-m">Laatst gesproken</th><th class="hide-m">Interval</th><th>Volgende keer</th><th class="cell-actions"><span class="sr-only">Acties</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+    : '<div class="base-container">' + (actionContacts().length ? emptyState('Niets in deze selectie', S.q ? 'Geen treffers voor "' + S.q + '".' : 'Kies een ander filter.') : emptyState('De actielijst is leeg', 'Zet bij een contact "Herhaaldelijk spreken" aan, dan verschijnt hij hier.', '<button class="btn btn--primary" type="button" data-href="#contacten">Naar contacten</button>')) + '</div>';
+  return '<section class="container">' + actionbar('Actielijst', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') +
+    '<div class="filterbar">' + searchField('q-a', 'Zoek in de actielijst') + segHtml + '<span class="filterbar__count">' + plural(shown, 'contact', 'contacten') + '</span></div>' + table + '</section>';
+}
+
+/* ---------- CONTACTEN ---------- */
+function vContacten() {
+  var F = S.filters;
+  var list = S.contacts.filter(function (c) {
+    if (!matchQ(c)) return false;
+    var p = partyOf(c);
+    if (F.ctype && (!p || p.type_id !== F.ctype)) return false;
+    if (F.cparty && c.party_id !== F.cparty) return false;
+    if (F.crec && !c.recurring) return false;
+    return true;
+  }).sort(function (a, b) { return cmpName(a.last_name + ' ' + a.first_name, b.last_name + ' ' + b.first_name); });
+  var filters = '<div class="filterbar">' + searchField('q-c', 'Zoek een contact') +
+    '<select class="select" data-filter="ctype" aria-label="Partijtype">' + typeOptions(F.ctype, 'Alle partijtypes') + '</select>' +
+    '<select class="select" data-filter="cparty" aria-label="Partij">' + partyOptions(F.cparty, 'Alle partijen') + '</select>' +
+    '<label class="checkbox"><input type="checkbox" data-filter="crec"' + (F.crec ? ' checked' : '') + '>Alleen herhaaldelijk</label>' +
+    '<span class="filterbar__count">' + plural(list.length, 'contact', 'contacten') + '</span></div>';
+  var body = list.length ? '<div class="table-container"><table class="table table--stack"><colgroup><col><col class="hide-m"><col class="c-type hide-m"><col class="c-date hide-m"><col class="c-rec hide-m"><col class="c-due"></colgroup><thead><tr><th>Naam</th><th class="hide-m">Partij</th><th class="hide-m">Type</th><th class="hide-m">Laatst gesproken</th><th class="hide-m">Herhaaldelijk</th><th>Volgende keer</th></tr></thead><tbody>' +
+    list.map(function (c) {
+      var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
+      return '<tr class="table__row--link" data-href="#contact/' + esc(c.id) + '"><td>' + personCell(c, c.role) + '</td><td class="hide-m">' + esc(p ? p.name : '') + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td>' +
+        '<td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + (c.recurring ? '<span class="recurring-mark">' + icon('check') + esc(c.interval_months) + ' mnd</span>' : '<span class="muted">Nee</span>') + '</td><td>' + dueLabel(c) + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<div class="base-container">' + (S.contacts.length ? emptyState('Geen contacten gevonden', 'Pas de filters of de zoekterm aan.') : emptyState('Nog geen contacten', 'Voeg je eerste contact toe, of importeer een bestand via Instellingen.', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>')) + '</div>';
+  return '<section class="container">' + actionbar('Contacten', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') + filters + body + '</section>';
+}
+
+/* ---------- PARTIJEN ---------- */
+function vPartijen() {
+  var ft = route.id && IX.type[route.id] ? route.id : '';
+  var tabs = '<div class="tab-group mb16" role="tablist">' + [['', 'Alle']].concat(S.types.map(function (t) { return [t.id, t.name]; })).map(function (t) {
+    var n = S.parties.filter(function (p) { return !t[0] || p.type_id === t[0]; }).length;
+    return '<a class="tab' + (t[0] === ft ? ' tab--active' : '') + '" role="tab" href="#partijen' + (t[0] ? '/' + esc(t[0]) : '') + '">' + esc(t[1]) + '<span class="badge" style="margin-left:6px">' + n + '</span></a>';
+  }).join('') + '</div>';
+  var list = S.parties.filter(function (p) { return (!ft || p.type_id === ft) && matchQParty(p); }).sort(function (a, b) { return cmpName(a.name, b.name); });
+  var body = list.length ? '<div class="table-container"><table class="table"><colgroup><col><col class="c-type hide-m"><col class="c-date hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr><th>Partij</th><th class="hide-m">Type</th><th class="hide-m">Plaats</th><th>Wie ken ik</th><th class="hide-m">Laatst gesproken</th></tr></thead><tbody>' +
+    list.map(function (p) {
+      var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); }), t = typeOfParty(p);
+      var last = cs.map(lastContact).filter(Boolean).sort(function (a, b) { return b - a; })[0];
+      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td>' + partyCell(p) + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td><td class="hide-m">' + esc(p.city || '') + '</td>' +
+        '<td title="' + esc(cs.map(fullName).join(', ')) + '">' + (cs.length ? esc(cs.map(fullName).join(', ')) : '<span class="muted">Nog niemand</span>') + '</td><td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<div class="base-container">' + emptyState(S.parties.length ? 'Geen partijen gevonden' : 'Nog geen partijen', S.parties.length ? 'Kies een ander type of pas de zoekterm aan.' : 'Voeg een partij toe, of maak er een aan vanuit een contact.', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') + '</div>';
+  return '<section class="container">' + actionbar('Partijen', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') +
+    '<div class="filterbar only-m">' + searchField('q-p', 'Zoek een partij of persoon') + '</div>' + tabs + body + '</section>';
+}
+
+/* ---------- CONTACT (detail en nieuw) ---------- */
+function fieldRow(label, id, inner, top) { return '<div class="form-input' + (top ? ' form-input--top' : '') + '"><label class="form-input__label" for="' + id + '">' + esc(label) + '</label><div class="form-input__field">' + inner + '</div></div>'; }
+function textInput(id, val, opts) {
+  opts = opts || {};
+  return '<span class="text-field' + (opts.cls ? ' ' + opts.cls : '') + '"><input class="text-field__input" id="' + id + '" name="' + id + '" type="' + (opts.type || 'text') + '" value="' + esc(val || '') + '"' + (opts.ph ? ' placeholder="' + esc(opts.ph) + '"' : '') + (opts.req ? ' required' : '') + (opts.af ? ' data-autofocus' : '') + ' autocomplete="off"></span>';
+}
+function vContact() {
+  var isNew = route.id === 'nieuw';
+  var c = isNew ? { first_name: '', last_name: '', role: '', email: '', phone: '', linkedin: '', notes: '', party_id: route.extra && IX.party[route.extra] ? route.extra : '', recurring: true, interval_months: S.settings.default_interval_months || 3, snooze_until: null } : IX.contact[route.id];
+  if (!c) return '<section class="container">' + actionbar('Contact niet gevonden') + '<div class="base-container">' + emptyState('Dit contact bestaat niet (meer)', 'Misschien is het verwijderd.', '<button class="btn" type="button" data-href="#contacten">Naar contacten</button>') + '</div></section>';
+  var intervals = INTERVALS.slice(); if (intervals.indexOf(+c.interval_months) < 0) intervals.push(+c.interval_months); intervals.sort(function (a, b) { return a - b; });
+  var form = '<form class="base-container base-container--padding" id="f-contact" autocomplete="off" novalidate>' +
+    '<fieldset class="fieldset"><div class="fieldset__header">' + icon('user') + 'Persoon</div>' +
+    fieldRow('Voornaam', 'first_name', textInput('first_name', c.first_name, { cls: 'text-field--wide', af: isNew })) +
+    fieldRow('Achternaam', 'last_name', textInput('last_name', c.last_name, { cls: 'text-field--wide', req: true })) +
+    fieldRow('Functie', 'role', textInput('role', c.role, { cls: 'text-field--wide' })) +
+    fieldRow('Partij', 'party_id', '<select class="select" id="party_id" name="party_id">' + partyOptions(c.party_id, 'Geen partij') + '<option value="__new">+ Nieuwe partij…</option></select>') +
+    '</fieldset>' +
+    '<fieldset class="fieldset"><div class="fieldset__header">' + icon('inbox') + 'Gegevens</div>' +
+    fieldRow('E-mail', 'email', textInput('email', c.email, { type: 'email', cls: 'text-field--full' })) +
+    fieldRow('Telefoon', 'phone', textInput('phone', c.phone, { type: 'tel', cls: 'text-field--wide' })) +
+    fieldRow('LinkedIn', 'linkedin', textInput('linkedin', c.linkedin, { type: 'url', cls: 'text-field--full', ph: 'https://www.linkedin.com/in/…' })) +
+    fieldRow('Notitie', 'notes', '<textarea class="textarea" id="notes" name="notes">' + esc(c.notes || '') + '</textarea>', true) +
+    '</fieldset>' +
+    '<fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('clock') + 'Opvolging</div>' +
+    fieldRow('Herhaaldelijk spreken', 'recurring', '<button class="switch" type="button" role="switch" id="recurring" aria-checked="' + (c.recurring ? 'true' : 'false') + '" aria-label="Herhaaldelijk spreken"></button><span class="muted" id="recurring-hint">' + (c.recurring ? 'Staat op de actielijst' : 'Staat niet op de actielijst') + '</span>') +
+    '<div id="rec-fields"' + (c.recurring ? '' : ' class="hidden"') + '>' +
+    fieldRow('Elke', 'interval_months', '<select class="select" id="interval_months" name="interval_months" style="width:160px">' + intervals.map(function (n) { return '<option value="' + n + '"' + (n === +c.interval_months ? ' selected' : '') + '>' + plural(n, 'maand', 'maanden') + '</option>'; }).join('') + '</select>') +
+    (isNew ? fieldRow('Laatst gesproken', 'last_spoken', textInput('last_spoken', '', { type: 'date' }) + '<span class="muted">optioneel</span>') : '') +
+    fieldRow('Uitgesteld tot', 'snooze_until', textInput('snooze_until', c.snooze_until || '', { type: 'date' }) + '<span class="muted">optioneel</span>') +
+    '</div></fieldset></form>';
+  var side = '';
+  if (!isNew) {
+    var xs = IX.byContact[c.id] || [], due = nextDue(c), last = lastContact(c), p = partyOf(c);
+    side = '<div class="detail__side"><div class="base-container side-block"><div class="side-block__title">Opvolging</div><dl class="kv">' +
+      '<dt>Laatst gesproken</dt><dd>' + (last ? esc(fmtDate(last, true)) : '—') + '</dd>' +
+      '<dt>Volgende keer</dt><dd>' + (c.recurring ? (due ? esc(fmtDate(due, true)) : 'nu') : 'niet gepland') + '</dd>' +
+      (p ? '<dt>Partij</dt><dd><a href="#partij/' + esc(p.id) + '">' + esc(p.name) + '</a></dd>' : '') +
+      '</dl><div class="form-actions-inline">' + (c.recurring ? snoozeMenu(c) : '') + spokenBtn(c) + '</div></div>' +
+      '<div class="base-container side-block" style="padding-bottom:4px"><div class="side-block__title">Contactmomenten <button class="btn btn--icon-only compact" type="button" data-act="add-interaction" data-id="' + esc(c.id) + '" aria-label="Contactmoment toevoegen" title="Contactmoment toevoegen">' + icon('plus', 'icon--14') + '</button></div>' +
+      (xs.length ? '<div class="feed-list" style="margin:0 -16px">' + xs.map(function (x) {
+        return '<div class="feed-entry feed-entry--compact feed-entry--note"><span class="feed-entry__avatar">' + icon(kindIcon(x.kind)) + '</span><span class="feed-entry__title">' + esc(x.kind) + ' · ' + esc(fmtDate(x.date, true)) + '</span>' +
+          '<span class="feed-entry__side"><button class="btn btn--icon-only compact" type="button" data-act="edit-interaction" data-id="' + esc(x.id) + '" aria-label="Bewerken">' + icon('pencil', 'icon--14') + '</button></span>' +
+          (x.notes ? '<span class="feed-entry__notes">' + esc(x.notes) + '</span>' : '') + '</div>';
+      }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog geen contactmomenten.</p>') + '</div></div>';
+  }
+  var actions = isNew ? '' : '<button class="btn" type="button" data-act="delete-contact" data-id="' + esc(c.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
+  return '<section class="container">' + actionbar(isNew ? 'Contact toevoegen' : fullName(c), actions) +
+    '<div class="detail"' + (isNew ? ' style="grid-template-columns:minmax(0,816px)"' : '') + '><div>' + form +
+    '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="save-contact" data-id="' + esc(isNew ? '' : c.id) + '"><span class="btn__text">Opslaan</span></button><button class="btn" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div></div>' + side + '</div></section>';
+}
+
+/* ---------- PARTIJ (detail en nieuw) ---------- */
+function vPartij() {
+  var isNew = route.id === 'nieuw';
+  var p = isNew ? { name: '', type_id: route.extra && IX.type[route.extra] ? route.extra : (S.types[0] ? S.types[0].id : ''), city: '', website: '', notes: '' } : IX.party[route.id];
+  if (!p) return '<section class="container">' + actionbar('Partij niet gevonden') + '<div class="base-container">' + emptyState('Deze partij bestaat niet (meer)', 'Misschien is ze verwijderd.', '<button class="btn" type="button" data-href="#partijen">Naar partijen</button>') + '</div></section>';
+  var form = '<form class="base-container base-container--padding" id="f-party" autocomplete="off" novalidate><fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('building') + 'Partij</div>' +
+    fieldRow('Naam', 'name', textInput('name', p.name, { cls: 'text-field--full', req: true, af: isNew })) +
+    fieldRow('Type', 'type_id', '<select class="select" id="type_id" name="type_id">' + typeOptions(p.type_id, 'Geen type') + '</select>') +
+    fieldRow('Plaats', 'city', textInput('city', p.city, { cls: 'text-field--wide' })) +
+    fieldRow('Website', 'website', textInput('website', p.website, { type: 'url', cls: 'text-field--full', ph: 'https://' })) +
+    fieldRow('Notitie', 'notes', '<textarea class="textarea" id="notes" name="notes">' + esc(p.notes || '') + '</textarea>', true) +
+    '</fieldset></form>';
+  var side = '';
+  if (!isNew) {
+    var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); });
+    side = '<div class="detail__side"><div class="base-container side-block" style="padding-bottom:4px"><div class="side-block__title">Wie ken ik hier <button class="btn btn--icon-only compact" type="button" data-href="#contact/nieuw/' + esc(p.id) + '" aria-label="Contact toevoegen bij deze partij" title="Contact toevoegen">' + icon('plus', 'icon--14') + '</button></div>' +
+      (cs.length ? '<div class="feed-list" style="margin:0 -16px">' + cs.map(function (c) {
+        return '<div class="feed-entry feed-entry--compact feed-entry--link" data-href="#contact/' + esc(c.id) + '"><span class="feed-entry__avatar">' + esc(initials(fullName(c))) + '</span><span class="feed-entry__title">' + esc(fullName(c)) + '</span><span class="feed-entry__subtitle"><span>' + esc(c.role || '') + '</span></span><span class="feed-entry__side">' + dueLabel(c) + '</span></div>';
+      }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog niemand vastgelegd.</p>') + '</div></div>';
+  }
+  var actions = isNew ? '' : '<button class="btn" type="button" data-act="delete-party" data-id="' + esc(p.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
+  return '<section class="container">' + actionbar(isNew ? 'Partij toevoegen' : p.name, actions) +
+    '<div class="detail"' + (isNew ? ' style="grid-template-columns:minmax(0,816px)"' : '') + '><div>' + form +
+    '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="save-party" data-id="' + esc(isNew ? '' : p.id) + '"><span class="btn__text">Opslaan</span></button><button class="btn" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div></div>' + side + '</div></section>';
+}
+
+/* ---------- INSTELLINGEN ---------- */
+function vInstellingen() {
+  var types = S.types.map(function (t, i) {
+    var n = S.parties.filter(function (p) { return p.type_id === t.id; }).length;
+    return '<div class="type-row"><span class="text-field"><input class="text-field__input" type="text" value="' + esc(t.name) + '" data-type-name="' + esc(t.id) + '" aria-label="Naam partijtype"></span>' +
+      '<span class="type-row__count">' + plural(n, 'partij', 'partijen') + '</span>' +
+      '<button class="btn btn--icon-only compact" type="button" data-act="type-up" data-id="' + esc(t.id) + '" aria-label="Omhoog"' + (i === 0 ? ' disabled' : '') + '><svg class="icon icon--14" style="transform:rotate(180deg)"><use href="#i-chevron-down"/></svg></button>' +
+      '<button class="btn btn--icon-only compact" type="button" data-act="type-down" data-id="' + esc(t.id) + '" aria-label="Omlaag"' + (i === S.types.length - 1 ? ' disabled' : '') + '>' + icon('chevron-down', 'icon--14') + '</button>' +
+      '<button class="btn btn--icon-only compact" type="button" data-act="type-delete" data-id="' + esc(t.id) + '" aria-label="Verwijderen">' + icon('trash', 'icon--14') + '</button></div>';
+  }).join('');
+  return '<section class="container"><div class="main-column">' + actionbar('Instellingen') +
+    '<div class="base-container base-container--padding">' +
+    '<fieldset class="fieldset"><div class="fieldset__header">' + icon('building') + 'Partijtypes</div>' + types +
+    '<div class="type-row mt16"><span class="text-field"><input class="text-field__input" type="text" id="new-type" placeholder="Nieuw type, bijv. Bank"></span><button class="btn compact" type="button" data-act="type-add">' + icon('plus', 'icon--14') + '<span class="btn__text">Toevoegen</span></button></div></fieldset>' +
+    '<fieldset class="fieldset"><div class="fieldset__header">' + icon('clock') + 'Actielijst</div>' +
+    fieldRow('Standaard interval', 'def-int', '<select class="select" id="def-int" style="width:160px" data-act-change="default-interval">' + INTERVALS.map(function (n) { return '<option value="' + n + '"' + (n === +S.settings.default_interval_months ? ' selected' : '') + '>' + plural(n, 'maand', 'maanden') + '</option>'; }).join('') + '</select>') +
+    '<p class="form-input__hint">Geldt voor nieuwe contacten. Per contact pas je het interval aan op de contactpagina.</p></fieldset>' +
+    '<fieldset class="fieldset"><div class="fieldset__header">' + icon('download') + 'Gegevens</div>' +
+    '<div class="demo-row" style="display:flex;flex-wrap:wrap;gap:8px"><button class="btn" type="button" data-act="export">' + icon('download', 'icon--14') + '<span class="btn__text">Exporteren (JSON)</span></button>' +
+    '<button class="btn" type="button" data-act="import">' + icon('inbox', 'icon--14') + '<span class="btn__text">Importeren…</span></button><input type="file" id="import-file" accept=".json,application/json" class="hidden"></div>' +
+    '<p class="form-input__hint">De export is een back-up van alles. Importeren voegt contacten en partijen toe uit een JSON-bestand; bestaande namen worden overgeslagen.</p></fieldset>' +
+    '<fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('user') + 'Account</div>' +
+    '<div class="kv" style="max-width:480px"><dt>Ingelogd als</dt><dd>' + esc(Store.user ? Store.user.email : '') + '</dd><dt>Database</dt><dd>' + (DEMO ? 'Demo (niets wordt opgeslagen)' : 'Supabase') + '</dd></div>' +
+    '<div class="mt16"><button class="btn" type="button" data-act="logout">' + icon('logout', 'icon--14') + '<span class="btn__text">Uitloggen</span></button></div></fieldset>' +
+    '</div></div></section>';
+}
+
+/* ============================================================
+   DIALOGEN EN MELDINGEN
+   ============================================================ */
+var popupResolve = null;
+function openPopup(opts) {
+  var el = $('#popup');
+  el.classList.toggle('popup--small', !!opts.small);
+  $('#popup-title').textContent = opts.title;
+  $('#popup-body').innerHTML = opts.body;
+  $('#popup-footer').innerHTML = (opts.buttons || []).map(function (b, i) { return '<button class="btn ' + (b.cls || '') + '" type="button" data-pbtn="' + i + '"><span class="btn__text">' + esc(b.label) + '</span></button>'; }).join('');
+  $('#overlay').classList.add('overlay--open'); el.classList.add('popup--open');
+  var f = $('[data-autofocus]', el) || $('input,select,textarea', el); if (f) setTimeout(function () { f.focus(); }, 30);
+  return new Promise(function (res) {
+    popupResolve = function (i) { var v = i === null ? null : (opts.buttons[i].value !== undefined ? opts.buttons[i].value : i); res(v); };
+    $all('[data-pbtn]', el).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = +b.dataset.pbtn, btn = opts.buttons[i];
+        if (btn.validate && !btn.validate()) return;
+        var data = opts.collect ? opts.collect() : null;
+        closePopup(); res(btn.value === false ? null : (data !== null ? { button: i, data: data } : i));
+      });
+    });
+  });
+}
+function closePopup() { $('#overlay').classList.remove('overlay--open'); $('#popup').classList.remove('popup--open'); if (popupResolve) { var r = popupResolve; popupResolve = null; } }
+function cancelPopup() { var r = popupResolve; closePopup(); if (r) r(null); }
+function confirmPopup(title, text, okLabel) {
+  return openPopup({ small: true, title: title, body: '<p class="muted" style="text-align:center">' + esc(text) + '</p>', buttons: [{ label: okLabel, cls: 'btn--danger', value: true }, { label: 'Annuleren', value: false }] }).then(function (v) { return v === 0 || v === true; });
+}
+var toastTimer;
+function toast(msg, kind) {
+  var t = $('#toast');
+  t.className = 'alert toast alert--' + (kind || 'success');
+  t.innerHTML = icon(kind === 'danger' ? 'alert' : 'check-circle', 'alert__icon') + '<span class="alert__body">' + esc(msg) + '</span>';
+  requestAnimationFrame(function () { t.classList.add('toast--open'); });
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('toast--open'); }, kind === 'danger' ? 6000 : 2400);
+}
+function fail(e) { console.error(e); toast('Niet opgeslagen: ' + (e && e.message ? e.message : e), 'danger'); }
+
+function interactionDialog(c, x) {
+  var isNew = !x; x = x || { date: todayIso(), kind: 'Meeting', notes: '' };
+  var body = '<p class="muted" style="margin-bottom:16px">' + esc(fullName(c)) + (partyOf(c) ? ' · ' + esc(partyOf(c).name) : '') + '</p>' +
+    fieldRow('Datum', 'x-date', textInput('x-date', x.date, { type: 'date' })) +
+    fieldRow('Soort', 'x-kind', '<div class="segmented-wrap"><div class="radio-group--segmented" role="radiogroup">' + KINDS.map(function (k) { return '<label class="radio-group__item"><input type="radio" name="x-kind" value="' + k + '"' + (k === x.kind ? ' checked' : '') + '><span class="radio-group__label">' + k + '</span></label>'; }).join('') + '</div></div>') +
+    fieldRow('Notitie', 'x-notes', '<textarea class="textarea" id="x-notes" data-autofocus placeholder="Waar ging het over? (optioneel)">' + esc(x.notes || '') + '</textarea>', true) +
+    (c.recurring ? '<p class="form-input__hint" style="margin-left:170px" id="x-hint"></p>' : '');
+  var buttons = [{ label: isNew ? 'Vastleggen' : 'Opslaan', cls: 'btn--primary', validate: function () { return !!$('#x-date').value; } }, { label: 'Annuleren', value: false }];
+  if (!isNew) buttons.push({ label: 'Verwijderen', cls: 'btn--danger', value: 'delete' });
+  var p = openPopup({ title: isNew ? 'Contactmoment vastleggen' : 'Contactmoment bewerken', body: body, buttons: buttons,
+    collect: function () { var k = $('input[name="x-kind"]:checked'); return { date: $('#x-date').value, kind: k ? k.value : 'Overig', notes: $('#x-notes').value.trim() }; } });
+  var hint = $('#x-hint');
+  function upd() { if (!hint) return; var d = parseDate($('#x-date').value); if (d) hint.textContent = 'Volgende keer op de actielijst: ' + fmtDate(addMonths(d, c.interval_months || 3), true) + '.'; }
+  if (hint) { upd(); $('#x-date').addEventListener('input', upd); }
+  return p;
+}
+
+/* ============================================================
+   ACTIES
+   ============================================================ */
+async function reload(silent) {
+  try { setData(await Store.loadAll()); render(); }
+  catch (e) { if (!silent) fail(e); }
+}
+async function actSpoken(id) {
+  var c = IX.contact[id]; if (!c) return;
+  var r = await interactionDialog(c);
+  if (!r || typeof r !== 'object') return;
+  try {
+    var x = await Store.insert('interactions', { contact_id: c.id, date: r.data.date, kind: r.data.kind, notes: r.data.notes || null });
+    S.interactions.push(x);
+    if (c.snooze_until) { Object.assign(c, await Store.update('contacts', c.id, { snooze_until: null })); }
+    index(); render();
+    var d = nextDue(c);
+    toast(c.recurring && d ? fullName(c) + ' staat weer op ' + fmtDate(d, true) + '.' : 'Contactmoment vastgelegd.');
+  } catch (e) { fail(e); }
+}
+async function actEditInteraction(xid) {
+  var x = S.interactions.find(function (i) { return i.id === xid; }); if (!x) return;
+  var c = IX.contact[x.contact_id];
+  var r = await interactionDialog(c, x);
+  if (r === 'delete') {
+    if (!(await confirmPopup('Contactmoment verwijderen?', 'Dit kan niet ongedaan worden gemaakt.', 'Verwijderen'))) return;
+    try { await Store.remove('interactions', x.id); S.interactions = S.interactions.filter(function (i) { return i.id !== x.id; }); index(); render(); toast('Contactmoment verwijderd.'); } catch (e) { fail(e); }
+    return;
+  }
+  if (!r || typeof r !== 'object') return;
+  try { var u = await Store.update('interactions', x.id, { date: r.data.date, kind: r.data.kind, notes: r.data.notes || null }); Object.assign(x, u); index(); render(); toast('Opgeslagen.'); } catch (e) { fail(e); }
+}
+async function actSnooze(id, until) {
+  var c = IX.contact[id]; if (!c) return;
+  try { Object.assign(c, await Store.update('contacts', id, { snooze_until: until })); index(); render(); toast(until ? fullName(c) + ' uitgesteld tot ' + fmtDate(until, true) + '.' : 'Uitstel opgeheven.'); } catch (e) { fail(e); }
+}
+async function actSnoozeDate(id) {
+  var c = IX.contact[id];
+  var r = await openPopup({ small: true, title: 'Uitstellen tot', body: '<p class="muted" style="text-align:center;margin-bottom:16px">' + esc(fullName(c)) + '</p><div style="display:flex;justify-content:center">' + textInput('s-date', isoDate(addDays(today(), 14)), { type: 'date' }) + '</div>',
+    buttons: [{ label: 'Uitstellen', cls: 'btn--primary', validate: function () { return !!$('#s-date').value; } }, { label: 'Annuleren', value: false }], collect: function () { return $('#s-date').value; } });
+  if (r && r.data) actSnooze(id, r.data);
+}
+function readForm(form) {
+  var o = {}; $all('input[name],select[name],textarea[name]', form).forEach(function (el) { o[el.name] = el.value.trim(); }); return o;
+}
+async function newPartyDialog(prefill) {
+  var r = await openPopup({ title: 'Nieuwe partij', body: fieldRow('Naam', 'np-name', textInput('np-name', prefill || '', { cls: 'text-field--full', af: true })) + fieldRow('Type', 'np-type', '<select class="select" id="np-type">' + typeOptions('', 'Geen type') + '</select>') + fieldRow('Plaats', 'np-city', textInput('np-city', '', { cls: 'text-field--wide' })),
+    buttons: [{ label: 'Toevoegen', cls: 'btn--primary', validate: function () { var ok = !!$('#np-name').value.trim(); $('#np-name').parentNode.classList.toggle('text-field--error', !ok); return ok; } }, { label: 'Annuleren', value: false }],
+    collect: function () { return { name: $('#np-name').value.trim(), type_id: $('#np-type').value || null, city: $('#np-city').value.trim() || null }; } });
+  if (!r || !r.data) return null;
+  var dupe = S.parties.find(function (p) { return norm(p.name) === norm(r.data.name); });
+  if (dupe) { toast('Partij bestond al; die is gekozen.'); return dupe; }
+  try { var p = await Store.insert('parties', r.data); S.parties.push(p); index(); return p; } catch (e) { fail(e); return null; }
+}
+async function actSaveContact(id) {
+  var f = $('#f-contact'), v = readForm(f);
+  var rec = $('#recurring').getAttribute('aria-checked') === 'true';
+  if (!v.last_name) { $('#last_name').parentNode.classList.add('text-field--error'); $('#last_name').focus(); toast('Vul in elk geval een achternaam in.', 'danger'); return; }
+  var row = { first_name: v.first_name || null, last_name: v.last_name, role: v.role || null, party_id: v.party_id && v.party_id !== '__new' ? v.party_id : null,
+    email: v.email || null, phone: v.phone || null, linkedin: v.linkedin || null, notes: v.notes || null, recurring: rec, interval_months: +v.interval_months || 3, snooze_until: v.snooze_until || null };
+  try {
+    if (id) { Object.assign(IX.contact[id], await Store.update('contacts', id, row)); index(); dirty = false; toast('Opgeslagen.'); go('contact/' + id); }
+    else {
+      var c = await Store.insert('contacts', row); S.contacts.push(c);
+      if (v.last_spoken) S.interactions.push(await Store.insert('interactions', { contact_id: c.id, date: v.last_spoken, kind: 'Overig', notes: 'Vastgelegd bij het toevoegen van het contact.' }));
+      index(); dirty = false; toast(fullName(c) + ' toegevoegd.'); go('contact/' + c.id);
+    }
+  } catch (e) { fail(e); }
+}
+async function actSaveParty(id) {
+  var v = readForm($('#f-party'));
+  if (!v.name) { $('#name').parentNode.classList.add('text-field--error'); $('#name').focus(); toast('Vul een naam in.', 'danger'); return; }
+  var row = { name: v.name, type_id: v.type_id || null, city: v.city || null, website: v.website || null, notes: v.notes || null };
+  try {
+    if (id) { Object.assign(IX.party[id], await Store.update('parties', id, row)); index(); dirty = false; toast('Opgeslagen.'); go('partij/' + id); }
+    else { var p = await Store.insert('parties', row); S.parties.push(p); index(); dirty = false; toast(p.name + ' toegevoegd.'); go('partij/' + p.id); }
+  } catch (e) { fail(e); }
+}
+async function actDeleteContact(id) {
+  var c = IX.contact[id];
+  var n = (IX.byContact[id] || []).length;
+  if (!(await confirmPopup(fullName(c) + ' verwijderen?', 'Het contact' + (n ? ' en ' + plural(n, 'contactmoment', 'contactmomenten') : '') + ' worden definitief verwijderd.', 'Verwijderen'))) return;
+  try { await Store.remove('contacts', id); S.contacts = S.contacts.filter(function (x) { return x.id !== id; }); S.interactions = S.interactions.filter(function (x) { return x.contact_id !== id; }); index(); dirty = false; toast('Verwijderd.'); go('contacten'); } catch (e) { fail(e); }
+}
+async function actDeleteParty(id) {
+  var p = IX.party[id], n = (IX.byParty[id] || []).length;
+  if (!(await confirmPopup(p.name + ' verwijderen?', n ? 'De ' + plural(n, 'persoon', 'personen') + ' bij deze partij blijven bestaan, maar zonder partij.' : 'De partij wordt definitief verwijderd.', 'Verwijderen'))) return;
+  try { await Store.remove('parties', id); S.parties = S.parties.filter(function (x) { return x.id !== id; }); S.contacts.forEach(function (c) { if (c.party_id === id) c.party_id = null; }); index(); dirty = false; toast('Verwijderd.'); go('partijen'); } catch (e) { fail(e); }
+}
+async function ensureTypes() {
+  if (S.types.length) return;
+  try { var rows = await Store.insertMany('party_types', DEFAULT_TYPES.map(function (n, i) { return { name: n, sort: i }; })); S.types = rows.sort(function (a, b) { return a.sort - b.sort; }); index(); } catch (e) { fail(e); }
+}
+async function actTypeMove(id, dir) {
+  var i = S.types.findIndex(function (t) { return t.id === id; }), j = i + dir;
+  if (j < 0 || j >= S.types.length) return;
+  var a = S.types[i], b = S.types[j];
+  S.types[i] = b; S.types[j] = a;
+  try { await Promise.all(S.types.map(function (t, k) { if (t.sort === k) return null; t.sort = k; return Store.update('party_types', t.id, { sort: k }); })); index(); render(); } catch (e) { fail(e); }
+}
+async function actTypeDelete(id) {
+  var t = IX.type[id], n = S.parties.filter(function (p) { return p.type_id === id; }).length;
+  if (!(await confirmPopup('"' + t.name + '" verwijderen?', n ? plural(n, 'partij houdt', 'partijen houden') + ' dan geen type.' : 'Dit type wordt verwijderd.', 'Verwijderen'))) return;
+  try { await Store.remove('party_types', id); S.types = S.types.filter(function (x) { return x.id !== id; }); S.parties.forEach(function (p) { if (p.type_id === id) p.type_id = null; }); index(); render(); toast('Verwijderd.'); } catch (e) { fail(e); }
+}
+async function actTypeAdd() {
+  var el = $('#new-type'), name = el.value.trim(); if (!name) { el.focus(); return; }
+  if (S.types.some(function (t) { return norm(t.name) === norm(name); })) { toast('Dat type bestaat al.', 'danger'); return; }
+  try { S.types.push(await Store.insert('party_types', { name: name, sort: S.types.length })); index(); render(); toast('Type toegevoegd.'); } catch (e) { fail(e); }
+}
+async function actTypeRename(id, name) {
+  var t = IX.type[id]; name = name.trim(); if (!t || !name || name === t.name) return;
+  try { Object.assign(t, await Store.update('party_types', id, { name: name })); index(); toast('Opgeslagen.'); } catch (e) { fail(e); }
+}
+function actExport() {
+  var data = { exported_at: new Date().toISOString(), party_types: S.types, parties: S.parties, contacts: S.contacts, interactions: S.interactions, settings: S.settings };
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  var d = new Date(); a.download = String(d.getFullYear()).slice(2) + pad(d.getMonth() + 1) + pad(d.getDate()) + ' CRM export.json';
+  document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+/* Import: { parties:[{name,type,city,website,notes}], contacts:[{first_name,last_name,role,party,email,phone,linkedin,notes,recurring,interval_months,last_contact}] } */
+async function actImport(file) {
+  var data;
+  try { data = JSON.parse(await file.text()); } catch (e) { toast('Dit is geen geldig JSON-bestand.', 'danger'); return; }
+  var ps = data.parties || [], cs = data.contacts || [];
+  if (!(await confirmPopup('Importeren?', plural(ps.length, 'partij', 'partijen') + ' en ' + plural(cs.length, 'contact', 'contacten') + ' in het bestand. Namen die al bestaan worden overgeslagen.', 'Importeren'))) return;
+  try {
+    var typeByName = {}; S.types.forEach(function (t) { typeByName[norm(t.name)] = t; });
+    var partyByName = {}; S.parties.forEach(function (p) { partyByName[norm(p.name)] = p; });
+    var needTypes = [];
+    ps.concat(cs.map(function (c) { return { type: c.party_type }; })).forEach(function (p) { if (p.type && !typeByName[norm(p.type)] && needTypes.indexOf(p.type) < 0) needTypes.push(p.type); });
+    (await Store.insertMany('party_types', needTypes.map(function (n, i) { return { name: n, sort: S.types.length + i }; }))).forEach(function (t) { S.types.push(t); typeByName[norm(t.name)] = t; });
+    var newParties = [];
+    ps.concat(cs.filter(function (c) { return c.party; }).map(function (c) { return { name: c.party, type: c.party_type }; })).forEach(function (p) {
+      if (!p.name || partyByName[norm(p.name)] || newParties.some(function (x) { return norm(x.name) === norm(p.name); })) return;
+      newParties.push({ name: p.name, type_id: p.type && typeByName[norm(p.type)] ? typeByName[norm(p.type)].id : null, city: p.city || null, website: p.website || null, notes: p.notes || null });
+    });
+    (await Store.insertMany('parties', newParties)).forEach(function (p) { S.parties.push(p); partyByName[norm(p.name)] = p; });
+    var existing = {}; S.contacts.forEach(function (c) { existing[norm(fullName(c))] = true; });
+    var rows = [], lasts = [];
+    cs.forEach(function (c) {
+      var nm = norm([c.first_name, c.last_name].filter(Boolean).join(' '));
+      if (!c.last_name || existing[nm]) return; existing[nm] = true;
+      rows.push({ first_name: c.first_name || null, last_name: c.last_name, role: c.role || null, party_id: c.party && partyByName[norm(c.party)] ? partyByName[norm(c.party)].id : null, email: c.email || null, phone: c.phone || null, linkedin: c.linkedin || null, notes: c.notes || null,
+        recurring: !!c.recurring, interval_months: +c.interval_months || +S.settings.default_interval_months || 3 });
+      lasts.push(c.last_contact || null);
+    });
+    var made = await Store.insertMany('contacts', rows);
+    made.forEach(function (c) { S.contacts.push(c); });
+    var xs = [];
+    made.forEach(function (c, i) { if (lasts[i]) xs.push({ contact_id: c.id, date: lasts[i], kind: 'Overig', notes: 'Laatste contact uit import.' }); });
+    (await Store.insertMany('interactions', xs)).forEach(function (x) { S.interactions.push(x); });
+    index(); render(); toast(plural(made.length, 'contact', 'contacten') + ' en ' + plural(newParties.length, 'partij', 'partijen') + ' geïmporteerd.');
+  } catch (e) { fail(e); }
+}
+
+/* ============================================================
+   GEBEURTENISSEN
+   ============================================================ */
+var dirty = false;
+function closeMenus(except) {
+  $all('.drpdwn--open').forEach(function (d) { if (d !== except) { d.classList.remove('drpdwn--open'); var b = $('[data-drpdwn]', d); if (b) b.setAttribute('aria-expanded', 'false'); } });
+}
+function bindEvents() {
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var dd = t.closest('[data-drpdwn]');
+    if (dd) { e.preventDefault(); e.stopPropagation(); var d = dd.closest('.drpdwn'), open = !d.classList.contains('drpdwn--open'); closeMenus(d); d.classList.toggle('drpdwn--open', open); dd.setAttribute('aria-expanded', open ? 'true' : 'false'); return; }
+    if (!t.closest('.drpdwn__menu')) closeMenus();
+    var a = t.closest('[data-act]');
+    if (a && !a.disabled) {
+      e.preventDefault(); e.stopPropagation(); closeMenus();
+      var id = a.dataset.id;
+      switch (a.dataset.act) {
+        case 'spoken': actSpoken(id); break;
+        case 'snooze': actSnooze(id, isoDate(addDays(today(), +a.dataset.days))); break;
+        case 'snooze-date': actSnoozeDate(id); break;
+        case 'unsnooze': actSnooze(id, null); break;
+        case 'add-interaction': actSpoken(id); break;
+        case 'edit-interaction': actEditInteraction(id); break;
+        case 'save-contact': actSaveContact(id); break;
+        case 'save-party': actSaveParty(id); break;
+        case 'delete-contact': actDeleteContact(id); break;
+        case 'delete-party': actDeleteParty(id); break;
+        case 'back': dirty = false; if (history.length > 1) history.back(); else go('overzicht'); break;
+        case 'type-up': actTypeMove(id, -1); break;
+        case 'type-down': actTypeMove(id, 1); break;
+        case 'type-delete': actTypeDelete(id); break;
+        case 'type-add': actTypeAdd(); break;
+        case 'export': actExport(); break;
+        case 'import': $('#import-file').click(); break;
+        case 'logout': Store.signOut().then(function () { location.hash = ''; location.reload(); }); break;
+      }
+      return;
+    }
+    var sw = t.closest('.switch');
+    if (sw && sw.id === 'recurring') {
+      var on = sw.getAttribute('aria-checked') !== 'true'; sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      $('#rec-fields').classList.toggle('hidden', !on); $('#recurring-hint').textContent = on ? 'Staat op de actielijst' : 'Staat niet op de actielijst'; dirty = true; return;
+    }
+    var h = t.closest('[data-href]');
+    if (h && !t.closest('a,button:not([data-href]),input,select,label')) { e.preventDefault(); go(h.dataset.href.replace(/^#/, '')); return; }
+    if (h && h.tagName === 'BUTTON') { e.preventDefault(); go(h.dataset.href.replace(/^#/, '')); }
+  });
+  document.addEventListener('change', async function (e) {
+    var t = e.target;
+    if (t.dataset.filter) { S.filters[t.dataset.filter] = t.type === 'checkbox' ? t.checked : t.value; render(); return; }
+    if (t.hasAttribute('data-afilter')) { go('actielijst' + (t.value === 'alles' ? '' : '/' + t.value)); return; }
+    if (t.dataset.typeName) { actTypeRename(t.dataset.typeName, t.value); return; }
+    if (t.dataset.actChange === 'default-interval') { try { S.settings = await Store.saveSettings({ default_interval_months: +t.value }); toast('Opgeslagen.'); } catch (err) { fail(err); } return; }
+    if (t.id === 'party_id' && t.value === '__new') {
+      var p = await newPartyDialog();
+      if (p) { t.innerHTML = partyOptions(p.id, 'Geen partij') + '<option value="__new">+ Nieuwe partij…</option>'; } else { t.value = ''; }
+      return;
+    }
+    if (t.id === 'import-file' && t.files[0]) { actImport(t.files[0]); t.value = ''; }
+  });
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.closest('#f-contact,#f-party')) { dirty = true; var tf = t.closest('.text-field--error'); if (tf && t.value.trim()) tf.classList.remove('text-field--error'); }
+    if (t.id === 'zoek' || t.hasAttribute('data-q')) {
+      S.q = t.value;
+      $all('#zoek,[data-q]').forEach(function (o) { if (o !== t) o.value = t.value; });
+      if (['contacten', 'partijen', 'actielijst'].indexOf(route.view) < 0) { go('contacten'); }
+      else { var pos = t.selectionStart; var isTop = t.id === 'zoek'; render(); var el = isTop ? $('#zoek') : $('#' + t.id); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (x) {} } }
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeMenus(); if ($('#popup').classList.contains('popup--open')) cancelPopup(); }
+    if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !document.body.classList.contains('auth-mode')) { e.preventDefault(); $('#zoek').focus(); }
+    if (e.key === 'Enter' && e.target.id === 'new-type') { e.preventDefault(); actTypeAdd(); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && $('#popup').classList.contains('popup--open')) { var b = $('#popup [data-pbtn="0"]'); if (b) b.click(); }
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.closest('#f-contact,#f-party')) { e.preventDefault(); var s = $('[data-act="save-contact"],[data-act="save-party"]'); if (s) s.click(); }
+  });
+  $('#overlay').addEventListener('click', cancelPopup);
+  window.addEventListener('hashchange', function () { dirty = false; render(); window.scrollTo(0, 0); });
+  window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && !dirty && Store.user && Date.now() - S.loadedAt > 60000 && !$('#popup').classList.contains('popup--open')) reload(true); });
+  $('#inklappen').addEventListener('click', function (e) { e.preventDefault(); document.body.classList.toggle('sidenav-collapsed'); try { localStorage.setItem('crm.collapsed', document.body.classList.contains('sidenav-collapsed') ? '1' : ''); } catch (x) {} });
+  try { if (localStorage.getItem('crm.collapsed')) document.body.classList.add('sidenav-collapsed'); } catch (x) {}
+}
+
+/* ============================================================
+   INLOGGEN EN OPSTARTEN
+   ============================================================ */
+function showAuth(mode, msg) {
+  document.body.classList.add('auth-mode');
+  var box = $('#auth-box');
+  if (mode === 'config') {
+    box.innerHTML = '<div class="auth__title">Database koppelen</div><p class="auth__lead">Vul de Project URL en de publishable key van je Supabase-project in. Ze worden alleen in deze browser bewaard.</p>' +
+      '<form id="f-config"><div class="auth__field"><label for="cfg-url">Project URL</label><input class="text-field__input" id="cfg-url" type="url" placeholder="https://xxxx.supabase.co" required></div>' +
+      '<div class="auth__field"><label for="cfg-key">Publishable key</label><input class="text-field__input" id="cfg-key" type="text" placeholder="sb_publishable_…" required></div>' +
+      '<div class="auth__actions"><button class="btn btn--primary" type="submit"><span class="btn__text">Koppelen</span></button></div></form>';
+    $('#f-config').addEventListener('submit', function (e) { e.preventDefault(); try { localStorage.setItem('crm.config', JSON.stringify({ url: $('#cfg-url').value.trim(), key: $('#cfg-key').value.trim() })); } catch (x) {} location.reload(); });
+    return;
+  }
+  var signup = mode === 'signup';
+  box.innerHTML = '<div class="auth__title">' + (signup ? 'Account aanmaken' : 'Inloggen') + '</div><p class="auth__lead">' + (signup ? 'Eenmalig. Zet daarna in Supabase nieuwe aanmeldingen uit.' : 'Log in om je contacten te openen.') + '</p>' +
+    '<form id="f-auth"><div class="auth__field"><label for="a-email">E-mailadres</label><input class="text-field__input" id="a-email" type="email" autocomplete="username" required></div>' +
+    '<div class="auth__field"><label for="a-pw">Wachtwoord</label><input class="text-field__input" id="a-pw" type="password" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" minlength="8" required></div>' +
+    '<div class="auth__actions"><button class="btn btn--primary" type="submit" id="a-submit"><span class="btn__text">' + (signup ? 'Account aanmaken' : 'Inloggen') + '</span></button></div>' +
+    '<div class="auth__error" id="a-err" role="alert">' + esc(msg || '') + '</div></form>' +
+    '<div class="auth__switch">' + (signup ? '<a data-auth="login">Ik heb al een account</a>' : 'Eerste keer? <a data-auth="signup">Account aanmaken</a>') + '</div>';
+  $('[data-auth]', box).addEventListener('click', function () { showAuth(this.dataset.auth); });
+  $('#a-email').focus();
+  $('#f-auth').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var btn = $('#a-submit'); btn.disabled = true; $('#a-err').textContent = '';
+    var email = $('#a-email').value.trim(), pw = $('#a-pw').value;
+    try {
+      if (signup) {
+        var d = await Store.signUp(email, pw);
+        if (d.session) { await start(d.session); return; }
+        showAuth('login', ''); $('#a-email').value = email;
+        $('#a-err').style.color = 'var(--g600)'; $('#a-err').textContent = 'Account aangemaakt. Bevestig je e-mailadres via de mail van Supabase en log daarna hier in.';
+      } else { await start(await Store.signIn(email, pw)); }
+    } catch (err) {
+      var m = err.message || String(err);
+      if (/invalid login/i.test(m)) m = 'E-mailadres of wachtwoord klopt niet.';
+      else if (/email not confirmed/i.test(m)) m = 'Je e-mailadres is nog niet bevestigd. Klik eerst op de link in de mail van Supabase.';
+      else if (/signups not allowed|signup is disabled/i.test(m)) m = 'Nieuwe accounts zijn uitgeschakeld.';
+      $('#a-err').textContent = m; btn.disabled = false;
+    }
+  });
+}
+async function start(session) {
+  Store.user = session.user;
+  document.body.classList.remove('auth-mode');
+  $('#user-name').textContent = session.user.email;
+  $('#main').innerHTML = '<section class="container"><div class="actionbar"><h1 class="actionbar__title muted">Laden…</h1></div></section>';
+  try { setData(await Store.loadAll()); }
+  catch (e) {
+    console.error(e);
+    $('#main').innerHTML = '<section class="container">' + actionbar('Kan de database niet lezen') + '<div class="alert alert--danger">' + icon('alert', 'alert__icon') + '<div class="alert__body">' + esc(e.message || e) +
+      '<div class="muted" style="font-weight:400;margin-top:4px">Is het schema (crm-schema.sql) in Supabase uitgevoerd? Staat het project misschien op pauze? Zet het dan in het Supabase-dashboard weer aan.</div></div></div></section>';
+    return;
+  }
+  await ensureTypes();
+  if (!S.settings.owner_id && !DEMO) { try { S.settings = await Store.saveSettings({ default_interval_months: 3 }); } catch (e) {} }
+  render();
+}
+async function boot() {
+  bindEvents();
+  if (DEMO) { Demo.build(); $('#demo-flag').classList.remove('hidden'); return start(await Store.session()); }
+  if (Store.init() === 'config') return showAuth('config');
+  Store.sb.auth.onAuthStateChange(function (ev, session) { if (ev === 'SIGNED_OUT') { Store.user = null; showAuth('login'); } else if (session) Store.user = session.user; });
+  var s = await Store.session();
+  if (s) start(s); else showAuth('login');
+}
+boot();

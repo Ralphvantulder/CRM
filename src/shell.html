@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CRM">
+<title>CRM</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<!--
+  CRM Ralph · contacten, partijen en een actielijst voor opvolging.
+  Vormgeving: Moneybird UI-template (04_Resources/methods/huisstijl-moneybird.md).
+  Data: Supabase met Row Level Security. Demo zonder database: voeg ?demo toe aan de URL.
+-->
+<style>
+/*TEMPLATE_CSS*/
+/*APP_CSS*/
+/*TEMPLATE_TAIL_CSS*/
+</style>
+</head>
+<body>
+<!--ICONS-->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c1.8.8 3 2.6 3.5 5.2"/></symbol>
+  <symbol id="i-action" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2.5v3M16 2.5v3M4 9h16M8.5 14.5l2 2 4-4"/></symbol>
+</defs></svg>
+
+<!-- ===================== BOVENBALK ===================== -->
+<nav class="topnav" aria-label="Hoofdbalk">
+  <div class="topnav__items">
+    <div class="topnav__left">
+      <a class="topnav__branding" href="#overzicht">
+        <span class="topnav__branding-mark" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
+        <span class="topnav__branding-text">CRM</span>
+      </a>
+      <span class="state-label state-label--warning hidden" id="demo-flag">Demo</span>
+    </div>
+    <div class="topnav__center">
+      <form class="topnav-search" role="search" onsubmit="return false">
+        <svg class="icon topnav-search__icon"><use href="#i-search"/></svg>
+        <input class="topnav-search__input" id="zoek" type="search" placeholder="Zoek een contact of partij" aria-label="Zoeken" autocomplete="off">
+        <kbd class="topnav-search__kbd">/</kbd>
+      </form>
+    </div>
+    <div class="topnav__right">
+      <div class="drpdwn">
+        <button class="btn btn--success" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn>
+          <svg class="icon icon--14"><use href="#i-plus"/></svg><span class="btn__text">Toevoegen</span>
+          <svg class="icon btn__icon-right"><use href="#i-chevron-down"/></svg>
+        </button>
+        <div class="drpdwn__menu drpdwn__menu--right" role="menu">
+          <button class="drpdwn__item" role="menuitem" data-href="#contact/nieuw"><svg class="icon"><use href="#i-user"/></svg>Contact</button>
+          <button class="drpdwn__item" role="menuitem" data-href="#partij/nieuw"><svg class="icon"><use href="#i-building"/></svg>Partij</button>
+        </div>
+      </div>
+      <div class="drpdwn topnav__user">
+        <button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn aria-label="Account">
+          <svg class="icon icon--14"><use href="#i-user"/></svg><span class="btn__text" id="user-name">Ralph</span>
+          <svg class="icon btn__icon-right"><use href="#i-chevron-down"/></svg>
+        </button>
+        <div class="drpdwn__menu drpdwn__menu--blue drpdwn__menu--right" role="menu">
+          <button class="drpdwn__item" role="menuitem" data-href="#instellingen"><svg class="icon"><use href="#i-settings"/></svg>Instellingen</button>
+          <hr class="drpdwn__divider">
+          <button class="drpdwn__item" role="menuitem" data-act="logout"><svg class="icon"><use href="#i-logout"/></svg>Uitloggen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ===================== ZIJBALK ===================== -->
+<nav class="sidenav" aria-label="Hoofdnavigatie">
+  <ul class="sidenav__items">
+    <li class="sidenav__item"><a class="sidenav__item-link" href="#overzicht" data-nav="overzicht"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-home"/></svg></span><span class="sidenav__item-text">Overzicht</span></a></li>
+    <li class="sidenav__item"><a class="sidenav__item-link" href="#actielijst" data-nav="actielijst"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-action"/></svg></span><span class="sidenav__item-text">Actielijst</span><span class="badge hidden" data-count="actie" style="margin-right:8px"></span></a></li>
+    <li class="sidenav__item"><a class="sidenav__item-link" href="#contacten" data-nav="contacten"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-contacts"/></svg></span><span class="sidenav__item-text">Contacten</span></a></li>
+    <li class="sidenav__item"><a class="sidenav__item-link" href="#partijen" data-nav="partijen"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-building"/></svg></span><span class="sidenav__item-text">Partijen</span></a></li>
+    <li class="sidenav__item"><a class="sidenav__item-link" href="#instellingen" data-nav="instellingen"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-settings"/></svg></span><span class="sidenav__item-text">Instellingen</span></a></li>
+  </ul>
+  <div class="sidenav__footer">
+    <a class="sidenav__item-link" href="#" id="inklappen"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-collapse"/></svg></span><span class="sidenav__item-text">Inklappen</span></a>
+  </div>
+</nav>
+
+<!-- ===================== WERKVLAK ===================== -->
+<main class="main" id="main"></main>
+
+<!-- ===================== MOBIELE ONDERBALK ===================== -->
+<nav class="tabbar" aria-label="Navigatie">
+  <a class="tabbar__item" href="#overzicht" data-nav="overzicht"><svg class="icon"><use href="#i-home"/></svg>Overzicht</a>
+  <a class="tabbar__item" href="#actielijst" data-nav="actielijst"><svg class="icon"><use href="#i-action"/></svg>Actielijst<span class="tabbar__count hidden" data-count="actie"></span></a>
+  <a class="tabbar__item" href="#contacten" data-nav="contacten"><svg class="icon"><use href="#i-contacts"/></svg>Contacten</a>
+  <a class="tabbar__item" href="#partijen" data-nav="partijen"><svg class="icon"><use href="#i-building"/></svg>Partijen</a>
+  <a class="tabbar__item" href="#instellingen" data-nav="instellingen"><svg class="icon"><use href="#i-settings"/></svg>Meer</a>
+</nav>
+
+<!-- ===================== INLOGGEN ===================== -->
+<div class="auth">
+  <div class="base-container auth__box">
+    <div class="auth__brand"><span class="topnav__branding-mark" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>CRM</div>
+    <div id="auth-box"></div>
+  </div>
+</div>
+
+<!-- ===================== DIALOOG EN MELDING ===================== -->
+<div class="overlay" id="overlay"></div>
+<div class="popup" id="popup" role="dialog" aria-modal="true" aria-labelledby="popup-title">
+  <div class="popup__container">
+    <div class="popup__header"><h2 class="popup__title" id="popup-title"></h2></div>
+    <div class="popup__body" id="popup-body"></div>
+    <div class="popup__footer" id="popup-footer"></div>
+  </div>
+</div>
+<div class="alert toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/*SUPABASE_JS*/
+</script>
+<script>
+/*APP_JS*/
+</script>
+</body>
+</html>
