@@ -192,9 +192,9 @@ function bucket(c) {
 }
 var BUCKETS = [
   { key: 'late', title: 'Te laat', cls: 'due--late' },
-  { key: 'none', title: 'Nog geen contactmoment vastgelegd', cls: 'due--none' },
   { key: 'week', title: 'Komende 7 dagen', cls: 'due--soon' },
   { key: 'month', title: 'Komende 30 dagen', cls: 'due--month' },
+  { key: 'none', title: 'Nog geen contactmoment vastgelegd', cls: 'due--none' },
   { key: 'later', title: 'Later', cls: 'due--later' }
 ];
 function dueLabel(c) {
@@ -255,7 +255,7 @@ function render() {
 /* ---------- gedeelde bouwstenen ---------- */
 function actionbar(title, actions) { return '<div class="actionbar"><h1 class="actionbar__title">' + esc(title) + '</h1><div class="actionbar__actions">' + (actions || '') + '</div></div>'; }
 function personCell(c, sub) {
-  return '<div class="person"><span class="person__avatar">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub">· ' + esc(sub) + '</span>' : '') + '</span></div>';
+  return '<div class="person"><span class="person__avatar avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub">· ' + esc(sub) + '</span>' : '') + '</span></div>';
 }
 function partyCell(p) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span>' + stageLabel(p) + '</div>'; }
 function spokenBtn(c) { return '<button class="btn btn--primary" type="button" data-act="spoken" data-id="' + esc(c.id) + '" title="Contactmoment vastleggen">' + icon('check', 'icon--14') + '<span class="btn__text">Gesproken</span></button>'; }
@@ -282,34 +282,65 @@ function searchField(id, ph) {
 function kindIcon(k) { return { Meeting: 'briefcase', Call: 'bell', Mail: 'inbox', Lunch: 'gift' }[k] || 'check'; }
 
 /* ---------- ACTIELIJST ---------- */
+/* kleur per partijtype: volgorde van de types (Bedrijf blauw, PE paars, M&A groen, DD oker) */
+var TONES = ['b', 'p', 'g', 'y', 'm', 'n'];
+function typeTone(t) {
+  if (!t) return 'n';
+  var i = S.types.indexOf(t); if (i < 0) i = S.types.findIndex(function (x) { return x.id === t.id; });
+  return TONES[i < 0 ? TONES.length - 1 : i % TONES.length];
+}
+function contactTone(c) { return typeTone(typeOfParty(partyOf(c))); }
+function typeDot(t) { return '<span class="tdot tone-' + typeTone(t) + '" aria-hidden="true"></span>'; }
+function greeting() {
+  var h = new Date().getHours(), g = h < 6 ? 'Goedenacht' : h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond';
+  var n = String(Store.user && Store.user.email || '').split('@')[0];
+  return /^[a-z]{2,20}$/i.test(n) && !DEMO ? g + ' ' + n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : g;
+}
+var TILES = [
+  { key: 'late', title: 'Te laat', sub: 'Termijn verstreken' },
+  { key: 'week', title: 'Komende 7 dagen', sub: 'Deze week spreken' },
+  { key: 'month', title: 'Komende 30 dagen', sub: 'Binnen een maand' },
+  { key: 'none', title: 'Nog niet gesproken', sub: 'Geen contactmoment vastgelegd' }
+];
+function actionRow(c) {
+  var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
+  return '<div class="arow" data-href="#contact/' + esc(c.id) + '">' +
+    '<span class="avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span>' +
+    '<div class="arow__main"><div class="arow__name"><a href="#contact/' + esc(c.id) + '">' + esc(fullName(c)) + '</a>' +
+    '<span class="recurring-mark" title="Herhaaldelijk spreken">' + icon('clock', 'icon--12') + 'elke ' + esc(c.interval_months) + ' mnd' + (c.snooze_until && parseDate(c.snooze_until) >= today() ? ' · uitgesteld' : '') + '</span></div>' +
+    '<div class="arow__sub">' + (c.role ? '<span class="arow__role">' + esc(c.role) + '</span>' : '') + (p ? (c.role ? '<span class="arow__role" aria-hidden="true">·</span>' : '') + typeDot(t) + '<span class="arow__party">' + esc(p.name) + '</span>' : '') + '</div></div>' +
+    '<div class="arow__last">' + (last ? 'Laatst gesproken ' + esc(fmtDate(last)) : 'Nog geen contactmoment') + '</div>' +
+    '<div class="arow__due">' + dueLabel(c) + '</div>' +
+    '<div class="row-actions arow__actions">' + spokenBtn(c) + snoozeMenu(c) + '</div></div>';
+}
 function vActielijst() {
   var f = route.id && ['late', 'none', 'week', 'month', 'later'].indexOf(route.id) >= 0 ? route.id : 'alles';
   var all = actionContacts().filter(matchQ);
-  var seg = [['alles', 'Alles'], ['late', 'Te laat'], ['week', '7 dagen'], ['month', '30 dagen'], ['later', 'Later']];
-  if (countBucket('none') || f === 'none') seg.splice(2, 0, ['none', 'Nog niet gesproken']);
-  var segHtml = '<div class="radio-group--segmented" role="radiogroup" aria-label="Filter">' + seg.map(function (s) {
-    return '<label class="radio-group__item"><input type="radio" name="afilter" value="' + s[0] + '"' + (s[0] === f ? ' checked' : '') + ' data-afilter><span class="radio-group__label">' + esc(s[1]) + '</span></label>';
+  var nLate = countBucket('late'), nWeek = countBucket('week');
+  var lead = !actionContacts().length ? 'Zet bij een contact "Herhaaldelijk spreken" aan, dan komt hij op deze lijst.'
+    : nLate + nWeek ? 'Je hebt ' + plural(nLate + nWeek, 'persoon', 'mensen') + ' om weer te spreken' + (nLate ? ', waarvan ' + nLate + ' te laat.' : ' deze week.')
+    : 'Je bent bij. Deze week hoeft niemand gesproken te worden.';
+  var tiles = '<div class="tiles">' + TILES.map(function (b) {
+    var on = f === b.key;
+    return '<a class="tile' + (on ? ' tile--on' : '') + '" href="#actielijst' + (on ? '' : '/' + b.key) + '"' + (on ? ' aria-current="true"' : '') + '>' +
+      '<span class="tile__label"><span class="tile__dot tile__dot--' + b.key + '" aria-hidden="true"></span>' + esc(b.title) + '</span>' +
+      '<span class="tile__count">' + countBucket(b.key) + '</span><span class="tile__sub">' + esc(b.sub) + '</span></a>';
   }).join('') + '</div>';
-  var rows = '';
-  var shown = 0;
+  var groups = '', shown = 0;
   BUCKETS.forEach(function (b) {
     if (f !== 'alles' && f !== b.key) return;
     var list = all.filter(function (c) { return bucket(c) === b.key; }).sort(function (x, y) { return (nextDue(x) || 0) - (nextDue(y) || 0) || cmpName(fullName(x), fullName(y)); });
     if (!list.length) return;
     shown += list.length;
-    rows += '<tr class="table__row--subheader"><td colspan="6">' + esc(b.title) + '<span class="badge">' + list.length + '</span></td></tr>';
-    rows += list.map(function (c) {
-      var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
-      return '<tr class="table__row--link" data-href="#contact/' + esc(c.id) + '"><td>' + personCell(c, c.role) + '</td><td class="hide-m">' + esc(p ? p.name : '') + (t ? ' <span class="muted">· ' + esc(t.name) + '</span>' : '') + '</td>' +
-        '<td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td><td class="hide-m muted">' + esc(c.interval_months) + ' mnd' + (c.snooze_until ? ' · uitgesteld' : '') + '</td><td>' + dueLabel(c) + '</td>' +
-        '<td class="cell-actions"><div class="row-actions">' + spokenBtn(c) + snoozeMenu(c) + '</div></td></tr>';
-    }).join('');
+    groups += '<section class="base-container alist"><div class="alist__head"><h2 class="alist__title">' + esc(b.title) + '</h2><span class="due ' + b.cls + '">' + list.length + '</span></div>' + list.map(actionRow).join('') + '</section>';
   });
-  var table = shown ? '<div class="table-container"><table class="table table--stack"><colgroup><col><col class="hide-m"><col class="c-date hide-m"><col class="c-num hide-m"><col class="c-due"><col class="c-act"></colgroup>' +
-    '<thead><tr><th>Naam</th><th class="hide-m">Partij</th><th class="hide-m">Laatst gesproken</th><th class="hide-m">Interval</th><th>Volgende keer</th><th class="cell-actions"><span class="sr-only">Acties</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
-    : '<div class="base-container">' + (actionContacts().length ? emptyState('Niets in deze selectie', S.q ? 'Geen treffers voor "' + S.q + '".' : 'Kies een ander filter.') : emptyState('De actielijst is leeg', 'Zet bij een contact "Herhaaldelijk spreken" aan, dan verschijnt hij hier.', '<button class="btn btn--primary" type="button" data-href="#contacten">Naar contacten</button>')) + '</div>';
-  return '<section class="container">' + actionbar('Actielijst', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') +
-    '<div class="filterbar">' + searchField('q-a', 'Zoek in de actielijst') + segHtml + '<span class="filterbar__count">' + plural(shown, 'contact', 'contacten') + '</span></div>' + table + '</section>';
+  if (!shown) groups = '<div class="base-container">' + (actionContacts().length ? emptyState('Niets in deze selectie', S.q ? 'Geen treffers voor "' + S.q + '".' : 'Hier staat nu niemand.', f !== 'alles' ? '<button class="btn" type="button" data-href="#actielijst">Alles tonen</button>' : '') : emptyState('De actielijst is leeg', 'Zet bij een contact "Herhaaldelijk spreken" aan, dan verschijnt hij hier.', '<button class="btn btn--primary" type="button" data-href="#contacten">Naar contacten</button>')) + '</div>';
+  return '<section class="container">' +
+    '<div class="hello"><div class="hello__text"><h1 class="hello__title">' + esc(greeting()) + '</h1><p class="hello__lead">' + esc(lead) + '</p></div>' +
+    '<div class="hello__actions"><button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button></div></div>' +
+    tiles +
+    '<div class="filterbar">' + searchField('q-a', 'Zoek in de actielijst') + (f !== 'alles' ? '<a class="btn" href="#actielijst">' + icon('chevron-left', 'icon--14') + '<span class="btn__text">Alles tonen</span></a>' : '') +
+    '<span class="filterbar__count">' + plural(shown, 'contact', 'contacten') + '</span></div>' + groups + '</section>';
 }
 
 /* ---------- CONTACTEN ---------- */
@@ -391,7 +422,8 @@ function addTag(box) {
   if (!$all('[data-tag]', box).some(function (t) { return norm(t.dataset.tag) === norm(v); })) inp.parentNode.insertAdjacentHTML('beforebegin', tagHtml(v));
   inp.value = ''; inp.focus(); dirty = true;
 }
-function focusText(p) { return arr(p.focus).slice().sort(function (a, b) { return FOCUS.indexOf(a) - FOCUS.indexOf(b); }).join(', '); }
+function sortedFocus(p) { return arr(p.focus).slice().sort(function (a, b) { return FOCUS.indexOf(a) - FOCUS.indexOf(b); }); }
+function focusText(p) { return sortedFocus(p).join(', '); }
 
 /* ---------- SALES PIPELINE ---------- */
 function inPipeline(p) { return !!p.pipeline_stage && !!STAGE[p.pipeline_stage]; }
@@ -414,7 +446,7 @@ function vPipeline() {
     var cards = list.filter(function (p) { return p.pipeline_stage === st.key; }).sort(function (a, b) {
       var ad = a.pipeline_next_date || '9999', bd = b.pipeline_next_date || '9999'; return ad < bd ? -1 : ad > bd ? 1 : cmpName(a.name, b.name);
     });
-    return '<div class="pcol" data-stage="' + st.key + '"><div class="pcol__head"><span>' + esc(st.title) + '</span><span class="badge">' + cards.length + '</span></div><div class="pcol__body" data-drop="' + st.key + '">' +
+    return '<div class="pcol" data-stage="' + st.key + '"><div class="pcol__head"><span class="pcol__title"><span class="sdot sdot--' + st.key + '" aria-hidden="true"></span>' + esc(st.title) + '</span><span class="pcol__count">' + cards.length + '</span></div><div class="pcol__body" data-drop="' + st.key + '">' +
       cards.map(function (p) {
         var t = typeOfParty(p), cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); });
         return '<div class="pcard" draggable="true" data-pid="' + esc(p.id) + '" data-href="#partij/' + esc(p.id) + '" tabindex="0">' +
@@ -422,8 +454,8 @@ function vPipeline() {
           '<div class="drpdwn"><button class="btn btn--icon-only compact pcard__menu" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn aria-label="Fase wijzigen" title="Fase wijzigen">' + icon('chevron-down', 'icon--14') + '</button>' +
           '<div class="drpdwn__menu drpdwn__menu--right" role="menu">' + STAGES.map(function (s2) { return '<button class="drpdwn__item" role="menuitem" data-act="stage" data-id="' + esc(p.id) + '" data-stage="' + s2.key + '"' + (s2.key === p.pipeline_stage ? ' disabled' : '') + '>' + (s2.key === p.pipeline_stage ? icon('check') : '<span style="width:14px"></span>') + esc(s2.title) + '</button>'; }).join('') +
           '<hr class="drpdwn__divider"><button class="drpdwn__item drpdwn__item--danger" role="menuitem" data-act="stage" data-id="' + esc(p.id) + '" data-stage="">' + icon('circle-minus') + 'Uit de pipeline halen</button></div></div></div>' +
-          '<div class="pcard__meta">' + esc([t && t.name, p.city, focusText(p)].filter(Boolean).join(' · ')) + '</div>' +
-          (arr(p.markets).length ? '<div class="pcard__tags">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</div>' : '') +
+          '<div class="pcard__meta">' + (t ? typeDot(t) : '') + '<span>' + esc([t && t.name, p.city].filter(Boolean).join(' · ')) + '</span></div>' +
+          (arr(p.focus).length || arr(p.markets).length ? '<div class="pcard__tags">' + sortedFocus(p).map(function (x) { return '<span class="tag tag--small tag--focus">' + esc(x) + '</span>'; }).join('') + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</div>' : '') +
           (cs.length ? '<div class="pcard__people">' + icon('user', 'icon--12') + '<span>' + esc(cs.map(fullName).join(', ')) + '</span></div>' : '') +
           nextStepHtml(p) + '</div>';
       }).join('') + (st.key === 'te_benaderen' ? '<button class="pcol__add" type="button" data-act="new-lead">' + icon('plus', 'icon--14') + 'Nieuwe partij</button>' : '') + '</div></div>';
@@ -556,15 +588,50 @@ function vPartij() {
   var side = '';
   if (!isNew) {
     var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); });
-    side = '<div class="detail__side"><div class="base-container side-block" style="padding-bottom:4px"><div class="side-block__title">Wie ken ik hier <button class="btn btn--icon-only compact" type="button" data-href="#contact/nieuw/' + esc(p.id) + '" aria-label="Contact toevoegen bij deze partij" title="Contact toevoegen">' + icon('plus', 'icon--14') + '</button></div>' +
+    side = '<div class="detail__side">' + (S.needsMigration ? '' : pipelineBlock(p)) + '<div class="base-container side-block" style="padding-bottom:4px"><div class="side-block__title">Wie ken ik hier <button class="btn btn--icon-only compact" type="button" data-href="#contact/nieuw/' + esc(p.id) + '" aria-label="Contact toevoegen bij deze partij" title="Contact toevoegen">' + icon('plus', 'icon--14') + '</button></div>' +
       (cs.length ? '<div class="feed-list" style="margin:0 -16px">' + cs.map(function (c) {
-        return '<div class="feed-entry feed-entry--compact feed-entry--link" data-href="#contact/' + esc(c.id) + '"><span class="feed-entry__avatar">' + esc(initials(fullName(c))) + '</span><span class="feed-entry__title">' + esc(fullName(c)) + '</span><span class="feed-entry__subtitle"><span>' + esc(c.role || '') + '</span></span><span class="feed-entry__side">' + dueLabel(c) + '</span></div>';
-      }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog niemand vastgelegd.</p>') + '</div></div>';
+        return '<div class="feed-entry feed-entry--compact feed-entry--link" data-href="#contact/' + esc(c.id) + '"><span class="feed-entry__avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span><span class="feed-entry__title">' + esc(fullName(c)) + '</span><span class="feed-entry__subtitle"><span>' + esc(c.role || '') + '</span></span><span class="feed-entry__side">' + dueLabel(c) + '</span></div>';
+      }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog niemand vastgelegd.</p>') + '</div>' + timelineBlock(cs) + '</div>';
   }
   var actions = isNew ? '' : '<button class="btn" type="button" data-act="delete-party" data-id="' + esc(p.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
-  return '<section class="container">' + actionbar(isNew ? 'Partij toevoegen' : p.name, (isNew ? '' : stageLabel(p)) + actions) +
+  return '<section class="container">' + (isNew ? actionbar('Partij toevoegen') : partyHead(p, actions)) +
     '<div class="detail"' + (isNew ? ' style="grid-template-columns:minmax(0,816px)"' : '') + '><div>' + form +
     '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="save-party" data-id="' + esc(isNew ? '' : p.id) + '"><span class="btn__text">Opslaan</span></button><button class="btn" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div></div>' + side + '</div></section>';
+}
+
+function partyHead(p, actions) {
+  var t = typeOfParty(p), n = (IX.byParty[p.id] || []).length, back = lastList === 'pipeline' ? ['pipeline', 'Sales pipeline'] : ['partijen', 'Partijen'];
+  var site = p.website ? '<a href="' + esc(/^https?:\/\//i.test(p.website) ? p.website : 'https://' + p.website) + '" target="_blank" rel="noopener">' + esc(String(p.website).replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')) + '</a>' : '';
+  return '<a class="crumb" href="#' + back[0] + '">' + icon('chevron-left', 'icon--12') + esc(back[1]) + '</a>' +
+    '<div class="base-container phead"><span class="avatar avatar--lg tone-' + typeTone(t) + '">' + esc(initials(p.name)) + '</span>' +
+    '<div class="phead__main"><div class="phead__title"><h1>' + esc(p.name) + '</h1>' + (t ? '<span class="type-chip tone-' + typeTone(t) + '">' + typeDot(t) + esc(t.name) + '</span>' : '') + stageLabel(p) + '</div>' +
+    '<div class="phead__meta">' + [p.city ? esc(p.city) : '', site, plural(n, 'contact', 'contacten')].filter(Boolean).map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    (S.needsMigration ? '' : '<div class="phead__row"><span class="phead__lbl">Focus</span>' + FOCUS.map(function (x) { return '<span class="fchip' + (arr(p.focus).indexOf(x) >= 0 ? ' fchip--on' : '') + '">' + esc(x) + '</span>'; }).join('') + '</div>' +
+    '<div class="phead__row"><span class="phead__lbl">Markten</span>' + (arr(p.markets).length ? arr(p.markets).map(function (m) { return '<span class="tag">' + esc(m) + '</span>'; }).join('') : '<span class="muted">Nog geen markten. Voeg ze hieronder toe.</span>') + '</div>') +
+    '</div><div class="phead__actions">' + actions + '<button class="btn btn--success" type="button" data-href="#contact/nieuw/' + esc(p.id) + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact</span></button></div></div>';
+}
+function pipelineBlock(p) {
+  if (!inPipeline(p)) return '';
+  var st = STAGE[p.pipeline_stage], open = STAGES.filter(function (x) { return x.key !== 'afgevallen'; });
+  var lost = st.key === 'afgevallen', cur = open.findIndex(function (x) { return x.key === st.key; });
+  var next = !st.closed ? STAGES[st.i + 1] : null, d = parseDate(p.pipeline_next_date);
+  return '<div class="base-container side-block"><div class="side-block__title">Sales pipeline' + (p.pipeline_since ? '<span class="muted" style="font-weight:400;font-size:12px">sinds ' + esc(fmtDate(p.pipeline_since)) + '</span>' : '') + '</div>' +
+    '<div class="psteps' + (lost ? ' psteps--lost' : '') + '" role="img" aria-label="Fase: ' + esc(st.title) + '">' + open.map(function (x, i) { return '<span class="psteps__bar' + (!lost && i <= cur ? ' psteps__bar--on' : '') + '"></span>'; }).join('') + '</div>' +
+    '<div class="psteps__labels"><span>' + esc(open[0].title) + '</span><strong>' + esc(st.title) + '</strong><span>' + esc(open[open.length - 1].title) + '</span></div>' +
+    '<dl class="kv mt16"><dt>Volgende stap</dt><dd>' + esc(p.pipeline_next_step || '—') + '</dd><dt>Wanneer</dt><dd>' + (d ? esc(fmtDate(d, true)) : '—') + '</dd></dl>' +
+    (next ? '<div class="form-actions-inline"><button class="btn" type="button" data-act="stage" data-id="' + esc(p.id) + '" data-stage="' + next.key + '">Naar ' + esc(next.title.toLowerCase()) + icon('chevron-right', 'btn__icon-right') + '</button></div>' : '') + '</div>';
+}
+function timelineBlock(cs) {
+  var xs = [];
+  cs.forEach(function (c) { (IX.byContact[c.id] || []).forEach(function (x) { xs.push({ x: x, c: c }); }); });
+  xs.sort(function (a, b) { return a.x.date < b.x.date ? 1 : a.x.date > b.x.date ? -1 : 0; });
+  var more = xs.length - 8; xs = xs.slice(0, 8);
+  return '<div class="base-container side-block"><div class="side-block__title">Tijdlijn</div>' +
+    (xs.length ? '<ol class="tline">' + xs.map(function (o) {
+      return '<li class="tline__item"><span class="tline__icon">' + icon(kindIcon(o.x.kind), 'icon--14') + '</span><div class="tline__body"><div class="tline__head"><span class="tline__title">' + esc(o.x.kind) + ' met <a href="#contact/' + esc(o.c.id) + '">' + esc(fullName(o.c)) + '</a></span><span class="tline__date">' + esc(fmtDate(o.x.date, true)) + '</span>' +
+        '<button class="btn btn--icon-only compact tline__edit" type="button" data-act="edit-interaction" data-id="' + esc(o.x.id) + '" aria-label="Bewerken">' + icon('pencil', 'icon--14') + '</button></div>' +
+        (o.x.notes ? '<p class="tline__notes">' + esc(o.x.notes) + '</p>' : '') + '</div></li>';
+    }).join('') + '</ol>' + (more > 0 ? '<p class="muted" style="padding-bottom:12px">En nog ' + more + ' eerder.</p>' : '') : '<p class="muted" style="padding-bottom:12px">Nog geen gesprekken met mensen van deze partij.</p>') + '</div>';
 }
 
 /* ---------- INSTELLINGEN ---------- */
