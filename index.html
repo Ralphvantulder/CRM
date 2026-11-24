@@ -593,6 +593,11 @@ body.auth-mode .auth{display:flex}
 .person__avatar.avatar{width:28px;height:28px;border-radius:8px;box-shadow:none;font-size:11px}
 .avatar--lg{width:56px;height:56px;border-radius:14px;font-size:20px;font-weight:700}
 .feed-entry__avatar[class*=tone-]{background:var(--tb);color:var(--tf);box-shadow:none;font-weight:600}
+.table col.c-status{width:124px}
+.type-cell{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.table td .stage-label{margin-left:0}
+.type-cell{display:inline-flex;align-items:center;gap:8px}
+.only-m-inline{display:none}
 .tdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--td);flex-shrink:0}
 .type-chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;background:var(--tb);color:var(--tf);font:500 12px/1 var(--font);white-space:nowrap}
 
@@ -676,6 +681,7 @@ body.auth-mode .auth{display:flex}
   .arow__last{display:none}
 }
 @media (max-width:768px){
+  .only-m-inline{display:inline-flex}
   .hello{padding:16px 0 14px}
   .hello__title{font-size:20px;line-height:26px}
   .hello__actions{display:none}
@@ -1108,7 +1114,7 @@ var Demo = { data: null, build: function () {
    STAAT EN AFGELEIDE GEGEVENS
    ============================================================ */
 var S = { types: [], parties: [], contacts: [], interactions: [], settings: { default_interval_months: 3 }, loadedAt: 0,
-  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, ptype: '', afilter: 'alles', pfocus: '', pmarket: '' } };
+  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, ptype: '', afilter: 'alles', pfocus: '', pmarket: '', pstage: '' } };
 
 function setData(d) {
   S.types = d.party_types.slice().sort(function (a, b) { return (a.sort - b.sort) || cmpName(a.name, b.name); });
@@ -1216,7 +1222,7 @@ function actionbar(title, actions) { return '<div class="actionbar"><h1 class="a
 function personCell(c, sub) {
   return '<div class="person"><span class="person__avatar avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub">· ' + esc(sub) + '</span>' : '') + '</span></div>';
 }
-function partyCell(p) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span>' + stageLabel(p) + '</div>'; }
+function partyCell(p, stageCls) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span>' + (stageCls ? '<span class="' + stageCls + '">' + stageLabel(p) + '</span>' : stageLabel(p)) + '</div>'; }
 function spokenBtn(c) { return '<button class="btn btn--primary" type="button" data-act="spoken" data-id="' + esc(c.id) + '" title="Contactmoment vastleggen">' + icon('check', 'icon--14') + '<span class="btn__text">Gesproken</span></button>'; }
 function snoozeMenu(c) {
   return '<div class="drpdwn"><button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn title="Uitstellen">' + icon('clock', 'icon--14') + '<span class="btn__text">Uitstellen</span>' + icon('chevron-down', 'btn__icon-right') + '</button>' +
@@ -1340,21 +1346,22 @@ function vPartijen() {
   var F = S.filters, markets = allMarkets();
   if (F.pmarket && !markets.some(function (m) { return norm(m) === norm(F.pmarket); })) F.pmarket = '';
   var list = S.parties.filter(function (p) {
-    return (!ft || p.type_id === ft) && matchQParty(p) && (!F.pfocus || arr(p.focus).indexOf(F.pfocus) >= 0) && (!F.pmarket || arr(p.markets).some(function (m) { return norm(m) === norm(F.pmarket); }));
+    return (!ft || p.type_id === ft) && matchQParty(p) && (!F.pfocus || arr(p.focus).indexOf(F.pfocus) >= 0) && (!F.pmarket || arr(p.markets).some(function (m) { return norm(m) === norm(F.pmarket); })) && (!F.pstage || (F.pstage === 'geen' ? !inPipeline(p) : p.pipeline_stage === F.pstage));
   }).sort(function (a, b) { return cmpName(a.name, b.name); });
   var pfilters = S.needsMigration ? '' : '<div class="filterbar">' + searchField('q-p', 'Zoek een partij of persoon') +
     '<select class="select" data-filter="pfocus" aria-label="Focus"><option value="">Alle focus</option>' + FOCUS.map(function (f) { return '<option' + (f === F.pfocus ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join('') + '</select>' +
     '<select class="select" data-filter="pmarket" aria-label="Markt"><option value="">Alle markten</option>' + markets.map(function (m) { return '<option' + (norm(m) === norm(F.pmarket) ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select>' +
+    '<select class="select" data-filter="pstage" aria-label="Status"><option value="">Alle statussen</option>' + STAGES.map(function (st) { return '<option value="' + st.key + '"' + (st.key === F.pstage ? ' selected' : '') + '>' + esc(st.title) + '</option>'; }).join('') + '<option value="geen"' + (F.pstage === 'geen' ? ' selected' : '') + '>Niet in de pipeline</option></select>' +
     '<span class="filterbar__count">' + plural(list.length, 'partij', 'partijen') + '</span></div>';
-  var body = list.length ? '<div class="table-container"><table class="table"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr><th>Partij</th><th class="hide-m">Type</th><th class="hide-m">Focus</th><th class="hide-m">Markten</th><th>Wie ken ik</th><th class="hide-m">Laatst gesproken</th></tr></thead><tbody>' +
+  var body = list.length ? '<div class="table-container"><table class="table"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-status hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr><th>Partij</th><th class="hide-m">Type</th><th class="hide-m">Status</th><th class="hide-m">Focus</th><th class="hide-m">Markten</th><th>Wie ken ik</th><th class="hide-m">Laatst gesproken</th></tr></thead><tbody>' +
     list.map(function (p) {
       var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); }), t = typeOfParty(p);
       var last = cs.map(lastContact).filter(Boolean).sort(function (a, b) { return b - a; })[0];
-      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td title="' + esc([p.name, p.city].filter(Boolean).join(', ')) + '">' + partyCell(p) + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td><td class="hide-m">' + esc(focusText(p)) + '</td><td class="hide-m" title="' + esc(arr(p.markets).join(', ')) + '">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</td>' +
+      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td title="' + esc([p.name, p.city].filter(Boolean).join(', ')) + '">' + partyCell(p, 'only-m-inline') + '</td><td class="hide-m">' + (t ? '<span class="type-cell">' + typeDot(t) + esc(t.name) + '</span>' : '') + '</td><td class="hide-m">' + (inPipeline(p) ? stageLabel(p) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + esc(focusText(p)) + '</td><td class="hide-m" title="' + esc(arr(p.markets).join(', ')) + '">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</td>' +
         '<td title="' + esc(cs.map(fullName).join(', ')) + '">' + (cs.length ? esc(cs.map(fullName).join(', ')) : '<span class="muted">Nog niemand</span>') + '</td><td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td></tr>';
     }).join('') + '</tbody></table></div>'
     : '<div class="base-container">' + emptyState(S.parties.length ? 'Geen partijen gevonden' : 'Nog geen partijen', S.parties.length ? 'Kies een ander type of pas de filters of zoekterm aan.' : 'Voeg een partij toe, of maak er een aan vanuit een contact.', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') + '</div>';
-  return '<section class="container">' + actionbar('Partijen', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') +
+  return '<section class="container container--wide">' + actionbar('Partijen', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') +
     (S.needsMigration ? migrationAlert() + '<div class="filterbar only-m">' + searchField('q-p', 'Zoek een partij of persoon') + '</div>' : '') + tabs + pfilters + body + '</section>';
 }
 
