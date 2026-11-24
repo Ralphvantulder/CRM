@@ -1041,6 +1041,10 @@ var Store = {
     var r = await this.sb.auth.signUp({ email: email, password: pw, options: { emailRedirectTo: location.origin + location.pathname } });
     if (r.error) throw r.error; return r.data;
   },
+  setName: async function (name) {
+    if (DEMO) { this.user.user_metadata = Object.assign({}, this.user.user_metadata, { display_name: name }); return this.user; }
+    var r = await this.sb.auth.updateUser({ data: { display_name: name } }); if (r.error) throw r.error; this.user = r.data.user; return this.user;
+  },
   signOut: async function () { if (!DEMO) await this.sb.auth.signOut(); },
   loadAll: async function () {
     if (DEMO) return JSON.parse(JSON.stringify(Demo.data));
@@ -1246,10 +1250,12 @@ function typeTone(t) {
 }
 function contactTone(c) { return typeTone(typeOfParty(partyOf(c))); }
 function typeDot(t) { return '<span class="tdot tone-' + typeTone(t) + '" aria-hidden="true"></span>'; }
+function displayName() { var m = Store.user && Store.user.user_metadata; return m && m.display_name ? String(m.display_name).trim() : ''; }
+function showUserName() { $('#user-name').textContent = displayName() || (Store.user ? Store.user.email : ''); }
 function greeting() {
   var h = new Date().getHours(), g = h < 6 ? 'Goedenacht' : h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond';
-  var n = String(Store.user && Store.user.email || '').split('@')[0];
-  return /^[a-z]{2,20}$/i.test(n) && !DEMO ? g + ' ' + n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : g;
+  var n = displayName();
+  return n ? g + ' ' + n : g;
 }
 var TILES = [
   { key: 'late', title: 'Te laat', sub: 'Termijn verstreken' },
@@ -1611,7 +1617,9 @@ function vInstellingen() {
     '<button class="btn" type="button" data-act="import">' + icon('inbox', 'icon--14') + '<span class="btn__text">Importeren…</span></button><input type="file" id="import-file" accept=".json,application/json" class="hidden"></div>' +
     '<p class="form-input__hint">De export is een back-up van alles. Importeren voegt contacten en partijen toe uit een JSON-bestand; bestaande namen worden overgeslagen.</p></fieldset>' +
     '<fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('user') + 'Account</div>' +
-    '<div class="kv" style="max-width:480px"><dt>Ingelogd als</dt><dd>' + esc(Store.user ? Store.user.email : '') + '</dd><dt>Database</dt><dd>' + (DEMO ? 'Demo (niets wordt opgeslagen)' : 'Supabase') + '</dd></div>' +
+    fieldRow('Je naam', 'display-name', '<span class="text-field text-field--wide"><input class="text-field__input" type="text" id="display-name" maxlength="40" value="' + esc(displayName()) + '" placeholder="Bijv. Ralph" data-act-change="display-name" autocomplete="given-name"></span>') +
+    '<p class="form-input__hint">Zo spreekt het CRM je aan in de begroeting en de bovenbalk. Laat leeg voor alleen je e-mailadres.</p>' +
+    '<div class="kv mt16" style="max-width:480px"><dt>Ingelogd als</dt><dd>' + esc(Store.user ? Store.user.email : '') + '</dd><dt>Database</dt><dd>' + (DEMO ? 'Demo (niets wordt opgeslagen)' : 'Supabase') + '</dd></div>' +
     '<div class="mt16"><button class="btn" type="button" data-act="logout">' + icon('logout', 'icon--14') + '<span class="btn__text">Uitloggen</span></button></div></fieldset>' +
     '</div></div></section>';
 }
@@ -1897,6 +1905,7 @@ function bindEvents() {
     if (t.hasAttribute('data-afilter')) { go('actielijst' + (t.value === 'alles' ? '' : '/' + t.value)); return; }
     if (t.dataset.typeName) { actTypeRename(t.dataset.typeName, t.value); return; }
     if (t.dataset.actChange === 'show-closed') { S.showClosed = t.checked; render(); return; }
+    if (t.dataset.actChange === 'display-name') { try { await Store.setName(t.value.trim().slice(0, 40)); showUserName(); toast('Opgeslagen.'); } catch (err) { fail(err); } return; }
     if (t.dataset.actChange === 'default-interval') { try { S.settings = await Store.saveSettings({ default_interval_months: +t.value }); toast('Opgeslagen.'); } catch (err) { fail(err); } return; }
     if (t.id === 'party_id' && t.value === '__new') {
       var p = await newPartyDialog();
@@ -1984,7 +1993,7 @@ function showAuth(mode, msg) {
 async function start(session) {
   Store.user = session.user;
   document.body.classList.remove('auth-mode');
-  $('#user-name').textContent = session.user.email;
+  showUserName();
   $('#main').innerHTML = '<section class="container"><div class="actionbar"><h1 class="actionbar__title muted">Laden…</h1></div></section>';
   try { setData(await Store.loadAll()); }
   catch (e) {
