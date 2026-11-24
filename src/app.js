@@ -10,6 +10,16 @@ var CFG_KEY = '%%SUPABASE_KEY%%';
 var DEFAULT_TYPES = ['Bedrijf', 'Private equity', 'M&A-adviseur', 'Due diligence-adviseur'];
 var KINDS = ['Meeting', 'Call', 'Mail', 'Lunch', 'Overig'];
 var INTERVALS = [1, 2, 3, 4, 6, 9, 12];
+var STAGES = [
+  { key: 'te_benaderen', title: 'Te benaderen' },
+  { key: 'benaderd', title: 'Benaderd' },
+  { key: 'in_gesprek', title: 'In gesprek' },
+  { key: 'voorstel', title: 'Voorstel' },
+  { key: 'gewonnen', title: 'Gewonnen', closed: true },
+  { key: 'afgevallen', title: 'Afgevallen', closed: true }
+];
+var FOCUS = ['VC', 'MKB', 'Mid-cap', 'Large-cap'];
+var STAGE = {}; STAGES.forEach(function (st, i) { st.i = i; STAGE[st.key] = st; });
 var DEMO = /[?&]demo\b/.test(location.search);
 
 /* ---------- hulpfuncties ---------- */
@@ -83,7 +93,10 @@ var Store = {
     await Promise.all(TABLES.map(async function (t) {
       var r = await self.sb.from(t).select('*');
       if (r.error) throw r.error; out[t] = r.data;
-    }));
+    }), (async function () {
+      var r = await self.sb.from('parties').select('pipeline_stage,focus,markets').limit(1);
+      out.needsMigration = !!r.error;
+    })());
     return out;
   },
   insert: async function (t, row) {
@@ -117,9 +130,13 @@ var Store = {
 var Demo = { data: null, build: function () {
   var t = DEFAULT_TYPES.map(function (n, i) { return { id: 't' + i, name: n, sort: i }; });
   var P = [['Voorbeeld Klinieken', 0, 'Utrecht'], ['Noordlicht Capital', 1, 'Amsterdam'], ['Brugwerk Partners', 2, 'Rotterdam'], ['Kade & Co Transaction Services', 3, 'Amsterdam'], ['Heuvelrug Zorggroep', 0, 'Zeist'], ['Delta Equity', 1, 'Den Haag']];
-  var parties = P.map(function (p, i) { return { id: 'p' + i, name: p[0], type_id: 't' + p[1], city: p[2], website: '', notes: '', created_at: '2026-06-01T09:00:00Z', updated_at: '2026-06-01T09:00:00Z' }; });
+  var parties = P.map(function (p, i) { return { id: 'p' + i, name: p[0], type_id: 't' + p[1], city: p[2], website: '', notes: '', pipeline_stage: null, pipeline_next_step: null, pipeline_next_date: null, pipeline_since: null, focus: [['MKB'], ['MKB', 'Mid-cap'], ['Mid-cap'], ['Mid-cap', 'Large-cap'], ['MKB'], ['VC', 'MKB']][i], markets: [['Zorg'], ['Zorg', 'Software'], ['Zorg', 'Industrie'], ['Zorg'], ['Zorg', 'Tandartsen'], ['Software']][i], created_at: '2026-06-01T09:00:00Z', updated_at: '2026-06-01T09:00:00Z' }; });
+  [['Zonnehof Kliniekgroep', 0, 'Arnhem', 'te_benaderen', 'Intro-mail sturen', 3], ['Rivierland Capital', 1, 'Nijmegen', 'te_benaderen', null, null], ['Oostpoort Dental', 0, 'Enschede', 'benaderd', 'Nabellen', -2], ['Meridiaan Partners', 2, 'Utrecht', 'in_gesprek', 'Tweede gesprek', 9], ['Lindeboom Zorg', 0, 'Breda', 'voorstel', 'Voorstel nabespreken', 5], ['Polder Groep', 0, 'Almere', 'gewonnen', null, null]].forEach(function (x, i) {
+    parties.push({ id: 'q' + i, name: x[0], type_id: 't' + x[1], city: x[2], website: '', notes: '', pipeline_stage: x[3], pipeline_next_step: x[4], pipeline_next_date: x[5] === null ? null : isoDate(addDays(today(), x[5])), pipeline_since: isoDate(addDays(today(), -20 - i * 5)), focus: ['MKB'], markets: [['Zorg'], ['Zorg'], ['Tandartsen'], ['Zorg', 'Software'], ['Zorg'], ['Industrie']][i], created_at: '2026-06-01T09:00:00Z', updated_at: '2026-06-01T09:00:00Z' });
+  });
   var C = [['Anna', 'de Vries', 'p0', 'CFO', true, 3, -120], ['Bram', 'Jansen', 'p1', 'Partner', true, 3, -95], ['Chris', 'Bakker', 'p1', 'Investment manager', true, 2, -50], ['Daan', 'Visser', 'p2', 'Director', true, 3, -86], ['Eva', 'Smit', 'p3', 'Partner', true, 6, -20], ['Fleur', 'Mulder', 'p4', 'CEO', false, 3, -200], ['Gijs', 'Meijer', 'p5', 'Associate', true, 3, null], ['Hanna', 'Bos', 'p3', 'Manager', false, 3, -10], ['Ivo', 'Peters', 'p5', 'Managing partner', true, 4, -118]];
   var contacts = [], inter = [];
+  C.push(['Kim', 'van Dijk', 'q2', 'Directeur', false, 3, null], ['Lars', 'de Groot', 'q3', 'Partner', false, 3, null]);
   C.forEach(function (c, i) {
     contacts.push({ id: 'c' + i, first_name: c[0], last_name: c[1], party_id: c[2], role: c[3], email: c[0].toLowerCase() + '@voorbeeld.nl', phone: '', linkedin: '', notes: '', recurring: c[4], interval_months: c[5], snooze_until: null, archived: false, created_at: '2026-05-01T09:00:00Z', updated_at: '2026-05-01T09:00:00Z' });
     if (c[6] !== null) inter.push({ id: 'x' + i, contact_id: 'c' + i, date: isoDate(addDays(today(), c[6])), kind: KINDS[i % 4], notes: i % 2 ? 'Bijgepraat over de markt en lopende trajecten.' : '', created_at: '2026-05-01T09:00:00Z' });
@@ -132,12 +149,13 @@ var Demo = { data: null, build: function () {
    STAAT EN AFGELEIDE GEGEVENS
    ============================================================ */
 var S = { types: [], parties: [], contacts: [], interactions: [], settings: { default_interval_months: 3 }, loadedAt: 0,
-  q: '', filters: { ctype: '', cparty: '', crec: false, ptype: '', afilter: 'alles' } };
+  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, ptype: '', afilter: 'alles', pfocus: '', pmarket: '' } };
 
 function setData(d) {
   S.types = d.party_types.slice().sort(function (a, b) { return (a.sort - b.sort) || cmpName(a.name, b.name); });
   S.parties = d.parties; S.contacts = d.contacts.filter(function (c) { return !c.archived; });
   S.interactions = d.interactions; S.settings = d.settings[0] || { default_interval_months: 3 };
+  S.needsMigration = !!d.needsMigration;
   S.loadedAt = Date.now(); index();
 }
 var IX = {};
@@ -202,32 +220,35 @@ function matchQParty(p) {
 /* ============================================================
    ROUTER EN VIEWS
    ============================================================ */
-var NAV = ['overzicht', 'actielijst', 'contacten', 'partijen', 'instellingen'];
-var route = { view: 'overzicht', id: null };
+var route = { view: 'actielijst', id: null };
 function go(hash) { if (location.hash === '#' + hash) render(); else location.hash = hash; }
 function parseHash() {
-  var h = location.hash.replace(/^#/, '') || 'overzicht', p = h.split('/');
+  var h = location.hash.replace(/^#/, '') || 'actielijst', p = h.split('/');
   route = { view: p[0], id: p[1] ? decodeURIComponent(p[1]) : null, extra: p[2] ? decodeURIComponent(p[2]) : null };
-  if (['overzicht', 'actielijst', 'contacten', 'partijen', 'instellingen', 'contact', 'partij'].indexOf(route.view) < 0) route.view = 'overzicht';
+  if (['actielijst', 'contacten', 'partijen', 'pipeline', 'instellingen', 'contact', 'partij'].indexOf(route.view) < 0) route.view = 'actielijst';
 }
-function navKey() { return route.view === 'contact' ? 'contacten' : route.view === 'partij' ? 'partijen' : route.view; }
+function navKey() { return route.view === 'contact' ? 'contacten' : route.view === 'partij' ? (lastList === 'pipeline' ? 'pipeline' : 'partijen') : route.view; }
+var lastList = 'partijen';
 function render() {
   parseHash();
   var main = $('#main');
   var html;
   try {
-    html = ({ overzicht: vOverzicht, actielijst: vActielijst, contacten: vContacten, partijen: vPartijen, instellingen: vInstellingen, contact: vContact, partij: vPartij })[route.view]();
+    if (['partijen', 'pipeline'].indexOf(route.view) >= 0) lastList = route.view;
+    html = ({ pipeline: vPipeline, actielijst: vActielijst, contacten: vContacten, partijen: vPartijen, instellingen: vInstellingen, contact: vContact, partij: vPartij })[route.view]();
   } catch (e) { console.error(e); html = '<section class="container"><div class="actionbar"><h1 class="actionbar__title">Er ging iets mis</h1></div><div class="alert alert--danger">' + icon('alert', 'alert__icon') + '<div class="alert__body">' + esc(e.message) + '</div></div></section>'; }
   main.innerHTML = html;
   var k = navKey();
   $all('[data-nav]').forEach(function (a) {
     var on = a.dataset.nav === k;
-    a.classList.toggle(a.classList.contains('tabbar__item') ? 'tabbar__item--active' : 'sidenav__item-link--active', on);
+    a.classList.toggle(a.classList.contains('tabbar__item') ? 'tabbar__item--active' : a.classList.contains('sidenav__subitem-link') ? 'sidenav__subitem-link--active' : 'sidenav__item-link--active', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   var late = countBucket('late') + countBucket('week');
   $all('[data-count="actie"]').forEach(function (b) { b.textContent = late; b.classList.toggle('hidden', !late); });
-  document.title = ({ overzicht: 'Overzicht', actielijst: 'Actielijst', contacten: 'Contacten', partijen: 'Partijen', instellingen: 'Instellingen', contact: 'Contact', partij: 'Partij' })[route.view] + ' · CRM';
+  var pl = pipelineDue();
+  $all('[data-count="pipeline"]').forEach(function (b) { b.textContent = pl; b.classList.toggle('hidden', !pl); });
+  document.title = ({ pipeline: 'Sales pipeline', actielijst: 'Actielijst', contacten: 'Contacten', partijen: 'Partijen', instellingen: 'Instellingen', contact: 'Contact', partij: 'Partij' })[route.view] + ' · CRM';
   var focusEl = $('[data-autofocus]', main); if (focusEl) focusEl.focus();
 }
 
@@ -236,7 +257,7 @@ function actionbar(title, actions) { return '<div class="actionbar"><h1 class="a
 function personCell(c, sub) {
   return '<div class="person"><span class="person__avatar">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub">· ' + esc(sub) + '</span>' : '') + '</span></div>';
 }
-function partyCell(p) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span></div>'; }
+function partyCell(p) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span>' + stageLabel(p) + '</div>'; }
 function spokenBtn(c) { return '<button class="btn btn--primary" type="button" data-act="spoken" data-id="' + esc(c.id) + '" title="Contactmoment vastleggen">' + icon('check', 'icon--14') + '<span class="btn__text">Gesproken</span></button>'; }
 function snoozeMenu(c) {
   return '<div class="drpdwn"><button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn title="Uitstellen">' + icon('clock', 'icon--14') + '<span class="btn__text">Uitstellen</span>' + icon('chevron-down', 'btn__icon-right') + '</button>' +
@@ -258,45 +279,6 @@ function searchField(id, ph) {
   return '<span class="text-field filter-search only-m">' + icon('search') + '<input class="text-field__input" type="search" id="' + id + '" data-q placeholder="' + esc(ph) + '" value="' + esc(S.q) + '"></span>';
 }
 
-/* ---------- OVERZICHT ---------- */
-function greeting() { var h = new Date().getHours(); return h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond'; }
-function vOverzicht() {
-  var late = countBucket('late'), week = countBucket('week'), month = countBucket('month'), none = countBucket('none');
-  function fi(icn, cls, label, n, hash) {
-    return '<div class="feed-item"><a class="feed-item__link" href="#' + hash + '"><span class="feed-item__icon ' + cls + '">' + icon(icn) + '</span><span class="feed-item__title">' + esc(label) + '</span><span class="feed-item__detail">' + n + '</span>' + icon('chevron-right', 'feed-item__chevron') + '</a></div>';
-  }
-  var cardAct = '<div class="base-container card"><h2 class="card__title">Actielijst</h2>' +
-    fi('alert', late ? 'feed-item__icon--danger' : '', 'Te laat', late, 'actielijst/late') +
-    fi('clock', week ? 'feed-item__icon--attention' : '', 'Komende 7 dagen', week, 'actielijst/week') +
-    fi('list', '', 'Komende 30 dagen', month, 'actielijst/month') +
-    (none ? fi('user', 'feed-item__icon--neutral', 'Nog geen contactmoment', none, 'actielijst/none') : '') + '</div>';
-  var cardNet = '<div class="base-container card"><h2 class="card__title">Netwerk per partijtype</h2>' +
-    S.types.map(function (t) {
-      var ps = S.parties.filter(function (p) { return p.type_id === t.id; });
-      var n = ps.reduce(function (s, p) { return s + (IX.byParty[p.id] || []).length; }, 0);
-      return '<div class="feed-item"><a class="feed-item__link" href="#partijen/' + esc(t.id) + '"><span class="feed-item__icon">' + icon('building') + '</span><span class="feed-item__title">' + esc(t.name) + ' <small>— ' + plural(ps.length, 'partij', 'partijen') + '</small></span><span class="feed-item__detail">' + n + '</span>' + icon('chevron-right', 'feed-item__chevron') + '</a></div>';
-    }).join('') + '</div>';
-  var recent = S.interactions.filter(function (x) { return IX.contact[x.contact_id]; }).slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.created_at < b.created_at ? 1 : -1); }).slice(0, 4);
-  var cardRecent = '<div class="base-container card"><h2 class="card__title">Recent gesproken</h2>' +
-    (recent.length ? recent.map(function (x) {
-      var c = IX.contact[x.contact_id], p = partyOf(c);
-      return '<div class="feed-item"><a class="feed-item__link" href="#contact/' + esc(c.id) + '"><span class="feed-item__icon feed-item__icon--success">' + icon(kindIcon(x.kind)) + '</span><span class="feed-item__title">' + esc(fullName(c)) + (p ? ' <small>— ' + esc(p.name) + '</small>' : '') + '</span><span class="muted nowrap">' + esc(fmtDate(x.date)) + '</span>' + icon('chevron-right', 'feed-item__chevron') + '</a></div>';
-    }).join('') : '<div class="feed-item"><div class="muted" style="padding:8px 0">Nog geen contactmomenten vastgelegd.</div></div>') + '</div>';
-
-  var upcoming = actionContacts().filter(function (c) { return nextDue(c); }).sort(function (a, b) { return nextDue(a) - nextDue(b); }).slice(0, 8);
-  var list = upcoming.length ? '<div class="base-container feed-list">' + upcoming.map(function (c) {
-    var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
-    return '<div class="feed-entry feed-entry--compact feed-entry--link" data-href="#contact/' + esc(c.id) + '"><span class="feed-entry__avatar">' + esc(initials(fullName(c))) + '</span>' +
-      '<span class="feed-entry__title">' + esc(fullName(c)) + (p ? ' · ' + esc(p.name) : '') + '</span>' +
-      '<span class="feed-entry__subtitle"><span>' + esc([c.role, t && t.name].filter(Boolean).join(' · ')) + (last ? ' · laatst ' + esc(fmtDate(last)) : '') + '</span></span>' +
-      '<span class="feed-entry__side">' + dueLabel(c) + '<span class="hide-m">' + spokenBtn(c) + '</span></span></div>';
-  }).join('') + '</div>' : '<div class="base-container">' + emptyState('Nog niemand op de actielijst', 'Zet bij een contact "Herhaaldelijk spreken" aan, dan verschijnt hij hier.', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') + '</div>';
-
-  return '<section class="container">' + actionbar(greeting() + ' Ralph!', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') +
-    (late ? '<div class="stack"><a class="alert alert--danger" href="#actielijst/late">' + icon('alert', 'alert__icon') + '<span class="alert__body">' + plural(late, 'contact staat', 'contacten staan') + ' te laat op je actielijst.</span>' + icon('chevron-right', 'alert__chevron') + '</a></div>' : '') +
-    '<div class="cards cards--overview">' + cardAct + cardNet + cardRecent + '</div>' +
-    '<div class="actionbar actionbar--section"><h2 class="actionbar__title">Eerstvolgende contacten</h2><div class="actionbar__actions"><a class="btn" href="#actielijst"><span class="btn__text">Hele actielijst</span></a></div></div>' + list + '</section>';
-}
 function kindIcon(k) { return { Meeting: 'briefcase', Call: 'bell', Mail: 'inbox', Lunch: 'gift' }[k] || 'check'; }
 
 /* ---------- ACTIELIJST ---------- */
@@ -363,17 +345,142 @@ function vPartijen() {
     var n = S.parties.filter(function (p) { return !t[0] || p.type_id === t[0]; }).length;
     return '<a class="tab' + (t[0] === ft ? ' tab--active' : '') + '" role="tab" href="#partijen' + (t[0] ? '/' + esc(t[0]) : '') + '">' + esc(t[1]) + '<span class="badge" style="margin-left:6px">' + n + '</span></a>';
   }).join('') + '</div>';
-  var list = S.parties.filter(function (p) { return (!ft || p.type_id === ft) && matchQParty(p); }).sort(function (a, b) { return cmpName(a.name, b.name); });
-  var body = list.length ? '<div class="table-container"><table class="table"><colgroup><col><col class="c-type hide-m"><col class="c-date hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr><th>Partij</th><th class="hide-m">Type</th><th class="hide-m">Plaats</th><th>Wie ken ik</th><th class="hide-m">Laatst gesproken</th></tr></thead><tbody>' +
+  var F = S.filters, markets = allMarkets();
+  if (F.pmarket && !markets.some(function (m) { return norm(m) === norm(F.pmarket); })) F.pmarket = '';
+  var list = S.parties.filter(function (p) {
+    return (!ft || p.type_id === ft) && matchQParty(p) && (!F.pfocus || arr(p.focus).indexOf(F.pfocus) >= 0) && (!F.pmarket || arr(p.markets).some(function (m) { return norm(m) === norm(F.pmarket); }));
+  }).sort(function (a, b) { return cmpName(a.name, b.name); });
+  var pfilters = S.needsMigration ? '' : '<div class="filterbar">' + searchField('q-p', 'Zoek een partij of persoon') +
+    '<select class="select" data-filter="pfocus" aria-label="Focus"><option value="">Alle focus</option>' + FOCUS.map(function (f) { return '<option' + (f === F.pfocus ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join('') + '</select>' +
+    '<select class="select" data-filter="pmarket" aria-label="Markt"><option value="">Alle markten</option>' + markets.map(function (m) { return '<option' + (norm(m) === norm(F.pmarket) ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select>' +
+    '<span class="filterbar__count">' + plural(list.length, 'partij', 'partijen') + '</span></div>';
+  var body = list.length ? '<div class="table-container"><table class="table"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr><th>Partij</th><th class="hide-m">Type</th><th class="hide-m">Focus</th><th class="hide-m">Markten</th><th>Wie ken ik</th><th class="hide-m">Laatst gesproken</th></tr></thead><tbody>' +
     list.map(function (p) {
       var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); }), t = typeOfParty(p);
       var last = cs.map(lastContact).filter(Boolean).sort(function (a, b) { return b - a; })[0];
-      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td>' + partyCell(p) + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td><td class="hide-m">' + esc(p.city || '') + '</td>' +
+      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td title="' + esc([p.name, p.city].filter(Boolean).join(', ')) + '">' + partyCell(p) + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td><td class="hide-m">' + esc(focusText(p)) + '</td><td class="hide-m" title="' + esc(arr(p.markets).join(', ')) + '">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</td>' +
         '<td title="' + esc(cs.map(fullName).join(', ')) + '">' + (cs.length ? esc(cs.map(fullName).join(', ')) : '<span class="muted">Nog niemand</span>') + '</td><td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td></tr>';
     }).join('') + '</tbody></table></div>'
-    : '<div class="base-container">' + emptyState(S.parties.length ? 'Geen partijen gevonden' : 'Nog geen partijen', S.parties.length ? 'Kies een ander type of pas de zoekterm aan.' : 'Voeg een partij toe, of maak er een aan vanuit een contact.', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') + '</div>';
+    : '<div class="base-container">' + emptyState(S.parties.length ? 'Geen partijen gevonden' : 'Nog geen partijen', S.parties.length ? 'Kies een ander type of pas de filters of zoekterm aan.' : 'Voeg een partij toe, of maak er een aan vanuit een contact.', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') + '</div>';
   return '<section class="container">' + actionbar('Partijen', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') +
-    '<div class="filterbar only-m">' + searchField('q-p', 'Zoek een partij of persoon') + '</div>' + tabs + body + '</section>';
+    (S.needsMigration ? migrationAlert() + '<div class="filterbar only-m">' + searchField('q-p', 'Zoek een partij of persoon') + '</div>' : '') + tabs + pfilters + body + '</section>';
+}
+
+/* ---------- FOCUS EN MARKTEN ---------- */
+function arr(v) { return Array.isArray(v) ? v : []; }
+function allMarkets() { var m = {}; S.parties.forEach(function (p) { arr(p.markets).forEach(function (x) { m[norm(x)] = m[norm(x)] || x; }); }); return Object.keys(m).map(function (k) { return m[k]; }).sort(cmpName); }
+function focusChips(id, sel) {
+  return '<div class="chips" id="' + id + '" role="group" aria-label="Focus">' + FOCUS.map(function (f) { var on = arr(sel).indexOf(f) >= 0; return '<button type="button" class="chip' + (on ? ' chip--on' : '') + '" aria-pressed="' + on + '" data-chip="' + esc(f) + '">' + (on ? icon('check', 'icon--12') : '') + esc(f) + '</button>'; }).join('') + '</div>';
+}
+function marketTags(id, vals) {
+  return '<div class="tags" id="' + id + '">' + arr(vals).map(function (m) { return tagHtml(m); }).join('') +
+    '<span class="tags__add"><input class="text-field__input" type="text" list="' + id + '-list" placeholder="Markt toevoegen" data-tag-input aria-label="Markt toevoegen"><button class="btn btn--icon-only compact" type="button" data-tag-add aria-label="Markt toevoegen" title="Toevoegen">' + icon('plus', 'icon--14') + '</button></span>' +
+    '<datalist id="' + id + '-list">' + allMarkets().map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist></div>';
+}
+function tagHtml(m) { return '<span class="tag" data-tag="' + esc(m) + '">' + esc(m) + '<button type="button" class="tag__x" data-tag-remove aria-label="' + esc(m) + ' verwijderen">×</button></span>'; }
+function readChips(id) { var el = $('#' + id); return el ? $all('.chip--on', el).map(function (c) { return c.dataset.chip; }) : []; }
+function readTags(id) {
+  var el = $('#' + id); if (!el) return [];
+  var out = $all('[data-tag]', el).map(function (t) { return t.dataset.tag; });
+  var inp = $('[data-tag-input]', el); if (inp && inp.value.trim() && !out.some(function (x) { return norm(x) === norm(inp.value.trim()); })) out.push(inp.value.trim());
+  return out;
+}
+function addTag(box) {
+  var inp = $('[data-tag-input]', box), v = inp.value.trim(); if (!v) { inp.focus(); return; }
+  var exist = allMarkets().find(function (m) { return norm(m) === norm(v); }); if (exist) v = exist;
+  if (!$all('[data-tag]', box).some(function (t) { return norm(t.dataset.tag) === norm(v); })) inp.parentNode.insertAdjacentHTML('beforebegin', tagHtml(v));
+  inp.value = ''; inp.focus(); dirty = true;
+}
+function focusText(p) { return arr(p.focus).slice().sort(function (a, b) { return FOCUS.indexOf(a) - FOCUS.indexOf(b); }).join(', '); }
+
+/* ---------- SALES PIPELINE ---------- */
+function inPipeline(p) { return !!p.pipeline_stage && !!STAGE[p.pipeline_stage]; }
+function pipelineDue() { var t = todayIso(); return S.parties.filter(function (p) { return inPipeline(p) && !STAGE[p.pipeline_stage].closed && p.pipeline_next_date && p.pipeline_next_date <= t; }).length; }
+function stageLabel(p) { return inPipeline(p) ? '<span class="stage-label stage-label--' + esc(p.pipeline_stage) + '">' + esc(STAGE[p.pipeline_stage].title) + '</span>' : ''; }
+function nextStepHtml(p) {
+  if (!p.pipeline_next_step && !p.pipeline_next_date) return '';
+  var d = parseDate(p.pipeline_next_date), cls = '';
+  if (d) { var n = daysBetween(today(), d); cls = n < 0 ? ' pcard__next--late' : n <= 7 ? ' pcard__next--soon' : ''; }
+  return '<div class="pcard__next' + cls + '">' + icon('clock', 'icon--12') + '<span>' + esc(p.pipeline_next_step || 'Volgende stap') + (d ? ' · ' + esc(fmtRel(d)) : '') + '</span></div>';
+}
+function migrationAlert() {
+  return '<div class="alert alert--warning mb16">' + icon('alert', 'alert__icon') + '<div class="alert__body">De database mist nog de pipelinekolommen.<div class="muted" style="font-weight:400;margin-top:4px">Voer in Supabase (SQL Editor) het bestand crm-migratie-1-pipeline.sql uit en ververs deze pagina.</div></div></div>';
+}
+function vPipeline() {
+  var list = S.parties.filter(function (p) { return inPipeline(p) && matchQParty(p); });
+  var stages = STAGES.filter(function (st) { return S.showClosed || !st.closed; });
+  var closedN = S.parties.filter(function (p) { return inPipeline(p) && STAGE[p.pipeline_stage].closed; }).length;
+  var cols = stages.map(function (st) {
+    var cards = list.filter(function (p) { return p.pipeline_stage === st.key; }).sort(function (a, b) {
+      var ad = a.pipeline_next_date || '9999', bd = b.pipeline_next_date || '9999'; return ad < bd ? -1 : ad > bd ? 1 : cmpName(a.name, b.name);
+    });
+    return '<div class="pcol" data-stage="' + st.key + '"><div class="pcol__head"><span>' + esc(st.title) + '</span><span class="badge">' + cards.length + '</span></div><div class="pcol__body" data-drop="' + st.key + '">' +
+      cards.map(function (p) {
+        var t = typeOfParty(p), cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); });
+        return '<div class="pcard" draggable="true" data-pid="' + esc(p.id) + '" data-href="#partij/' + esc(p.id) + '" tabindex="0">' +
+          '<div class="pcard__top"><span class="pcard__name">' + esc(p.name) + '</span>' +
+          '<div class="drpdwn"><button class="btn btn--icon-only compact pcard__menu" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn aria-label="Fase wijzigen" title="Fase wijzigen">' + icon('chevron-down', 'icon--14') + '</button>' +
+          '<div class="drpdwn__menu drpdwn__menu--right" role="menu">' + STAGES.map(function (s2) { return '<button class="drpdwn__item" role="menuitem" data-act="stage" data-id="' + esc(p.id) + '" data-stage="' + s2.key + '"' + (s2.key === p.pipeline_stage ? ' disabled' : '') + '>' + (s2.key === p.pipeline_stage ? icon('check') : '<span style="width:14px"></span>') + esc(s2.title) + '</button>'; }).join('') +
+          '<hr class="drpdwn__divider"><button class="drpdwn__item drpdwn__item--danger" role="menuitem" data-act="stage" data-id="' + esc(p.id) + '" data-stage="">' + icon('circle-minus') + 'Uit de pipeline halen</button></div></div></div>' +
+          '<div class="pcard__meta">' + esc([t && t.name, p.city, focusText(p)].filter(Boolean).join(' · ')) + '</div>' +
+          (arr(p.markets).length ? '<div class="pcard__tags">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</div>' : '') +
+          (cs.length ? '<div class="pcard__people">' + icon('user', 'icon--12') + '<span>' + esc(cs.map(fullName).join(', ')) + '</span></div>' : '') +
+          nextStepHtml(p) + '</div>';
+      }).join('') + (st.key === 'te_benaderen' ? '<button class="pcol__add" type="button" data-act="new-lead">' + icon('plus', 'icon--14') + 'Nieuwe partij</button>' : '') + '</div></div>';
+  }).join('');
+  var total = list.filter(function (p) { return !STAGE[p.pipeline_stage].closed; }).length;
+  return '<section class="container container--wide">' + actionbar('Sales pipeline', '<button class="btn btn--success" type="button" data-act="new-lead">' + icon('plus', 'icon--14') + '<span class="btn__text">Nieuwe partij</span></button>') +
+    (S.needsMigration ? migrationAlert() : '') +
+    '<div class="filterbar">' + searchField('q-pl', 'Zoek in de pipeline') + '<span class="muted">' + plural(total, 'lopende partij', 'lopende partijen') + '</span>' +
+    '<label class="checkbox filterbar__count"><input type="checkbox" data-act-change="show-closed"' + (S.showClosed ? ' checked' : '') + '>Gewonnen en afgevallen tonen' + (closedN ? ' (' + closedN + ')' : '') + '</label></div>' +
+    '<div class="pboard">' + cols + '</div>' +
+    '<p class="form-input__hint mt16 hide-m">Sleep een kaart naar een andere fase, of kies de fase via de pijl op de kaart. Een partij in de pipeline staat ook gewoon bij Partijen en haar mensen bij Contacten.</p></section>';
+}
+async function actStage(pid, stage) {
+  var p = IX.party[pid]; if (!p || (p.pipeline_stage || '') === stage) return;
+  if (S.needsMigration) { toast('Voer eerst de migratie voor de pipeline uit.', 'danger'); return; }
+  var patch = { pipeline_stage: stage || null };
+  if (stage && !p.pipeline_since) patch.pipeline_since = todayIso();
+  try { Object.assign(p, await Store.update('parties', pid, patch)); index(); render(); toast(stage ? p.name + ' → ' + STAGE[stage].title : p.name + ' uit de pipeline gehaald.'); } catch (e) { fail(e); }
+}
+async function actNewLead() {
+  if (S.needsMigration) { toast('Voer eerst de migratie voor de pipeline uit.', 'danger'); return; }
+  var body = '<div class="fieldset__header">' + icon('building') + 'Partij</div>' +
+    fieldRow('Naam', 'l-name', '<span class="text-field text-field--full" style="width:100%"><input class="text-field__input" id="l-name" type="text" list="l-parties" data-autofocus autocomplete="off" placeholder="Nieuwe of bestaande partij"></span><datalist id="l-parties">' + S.parties.filter(function (p) { return !inPipeline(p); }).map(function (p) { return '<option value="' + esc(p.name) + '">'; }).join('') + '</datalist>') +
+    fieldRow('Type', 'l-type', '<select class="select" id="l-type">' + typeOptions('', 'Geen type') + '</select>') +
+    fieldRow('Plaats', 'l-city', textInput('l-city', '', { cls: 'text-field--wide' })) +
+    fieldRow('Focus', 'l-focus', focusChips('l-focus', [])) +
+    fieldRow('Markten', 'l-markets', marketTags('l-markets', []), true) +
+    fieldRow('Fase', 'l-stage', '<select class="select" id="l-stage">' + STAGES.filter(function (st) { return !st.closed; }).map(function (st) { return '<option value="' + st.key + '">' + esc(st.title) + '</option>'; }).join('') + '</select>') +
+    fieldRow('Volgende stap', 'l-step', textInput('l-step', '', { cls: 'text-field--full', ph: 'Bijv. mail sturen, bellen' })) +
+    fieldRow('Wanneer', 'l-date', textInput('l-date', '', { type: 'date' })) +
+    '<div class="fieldset__header mt16">' + icon('user') + 'Contactpersoon <span class="muted" style="font-weight:400">· optioneel</span></div>' +
+    fieldRow('Voornaam', 'l-first', textInput('l-first', '', { cls: 'text-field--wide' })) +
+    fieldRow('Achternaam', 'l-last', textInput('l-last', '', { cls: 'text-field--wide' })) +
+    fieldRow('Functie', 'l-role', textInput('l-role', '', { cls: 'text-field--wide' })) +
+    fieldRow('E-mail', 'l-email', textInput('l-email', '', { type: 'email', cls: 'text-field--full' })) +
+    fieldRow('Telefoon', 'l-phone', textInput('l-phone', '', { type: 'tel', cls: 'text-field--wide' }));
+  var r = await openPopup({ title: 'Nieuwe partij in de pipeline', body: body,
+    buttons: [{ label: 'Toevoegen', cls: 'btn--primary', validate: function () { var ok = !!$('#l-name').value.trim(); $('#l-name').parentNode.classList.toggle('text-field--error', !ok); if (!ok) $('#l-name').focus(); return ok; } }, { label: 'Annuleren', value: false }],
+    collect: function () { var o = {}; ['name', 'type', 'city', 'stage', 'step', 'date', 'first', 'last', 'role', 'email', 'phone'].forEach(function (k) { o[k] = $('#l-' + k).value.trim(); }); o.focus = readChips('l-focus'); o.markets = readTags('l-markets'); return o; } });
+  if (!r || !r.data) return;
+  var v = r.data;
+  try {
+    var p = S.parties.find(function (x) { return norm(x.name) === norm(v.name); });
+    var pipe = { pipeline_stage: v.stage, pipeline_next_step: v.step || null, pipeline_next_date: v.date || null, pipeline_since: todayIso() };
+    if (p) {
+      var mk = arr(p.markets).slice(); v.markets.forEach(function (m) { if (!mk.some(function (x) { return norm(x) === norm(m); })) mk.push(m); });
+      var fc = arr(p.focus).slice(); v.focus.forEach(function (f) { if (fc.indexOf(f) < 0) fc.push(f); });
+      Object.assign(p, await Store.update('parties', p.id, Object.assign(pipe, { focus: fc, markets: mk }, v.type && !p.type_id ? { type_id: v.type } : {}, v.city && !p.city ? { city: v.city } : {})));
+    }
+    else { p = await Store.insert('parties', Object.assign({ name: v.name, type_id: v.type || null, city: v.city || null, focus: v.focus, markets: v.markets }, pipe)); S.parties.push(p); }
+    if (v.last || v.first) {
+      var c = await Store.insert('contacts', { first_name: v.first || null, last_name: v.last || v.first, role: v.role || null, party_id: p.id, email: v.email || null, phone: v.phone || null, recurring: false, interval_months: +S.settings.default_interval_months || 3 });
+      if (!v.last) c.first_name = null;
+      S.contacts.push(c);
+    }
+    index(); render(); toast(p.name + ' staat in de pipeline.');
+  } catch (e) { fail(e); }
 }
 
 /* ---------- CONTACT (detail en nieuw) ---------- */
@@ -431,15 +538,21 @@ function vContact() {
 /* ---------- PARTIJ (detail en nieuw) ---------- */
 function vPartij() {
   var isNew = route.id === 'nieuw';
-  var p = isNew ? { name: '', type_id: route.extra && IX.type[route.extra] ? route.extra : (S.types[0] ? S.types[0].id : ''), city: '', website: '', notes: '' } : IX.party[route.id];
+  var p = isNew ? { name: '', type_id: route.extra && IX.type[route.extra] ? route.extra : (S.types[0] ? S.types[0].id : ''), city: '', website: '', notes: '', focus: [], markets: [], pipeline_stage: null } : IX.party[route.id];
   if (!p) return '<section class="container">' + actionbar('Partij niet gevonden') + '<div class="base-container">' + emptyState('Deze partij bestaat niet (meer)', 'Misschien is ze verwijderd.', '<button class="btn" type="button" data-href="#partijen">Naar partijen</button>') + '</div></section>';
   var form = '<form class="base-container base-container--padding" id="f-party" autocomplete="off" novalidate><fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('building') + 'Partij</div>' +
     fieldRow('Naam', 'name', textInput('name', p.name, { cls: 'text-field--full', req: true, af: isNew })) +
     fieldRow('Type', 'type_id', '<select class="select" id="type_id" name="type_id">' + typeOptions(p.type_id, 'Geen type') + '</select>') +
     fieldRow('Plaats', 'city', textInput('city', p.city, { cls: 'text-field--wide' })) +
+    (S.needsMigration ? '' : fieldRow('Focus', 'focus', focusChips('focus', p.focus)) + fieldRow('Markten', 'markets', marketTags('markets', p.markets), true)) +
     fieldRow('Website', 'website', textInput('website', p.website, { type: 'url', cls: 'text-field--full', ph: 'https://' })) +
     fieldRow('Notitie', 'notes', '<textarea class="textarea" id="notes" name="notes">' + esc(p.notes || '') + '</textarea>', true) +
-    '</fieldset></form>';
+    '</fieldset>' + (S.needsMigration ? '' : '<fieldset class="fieldset mt16" style="margin-bottom:0"><div class="fieldset__header">' + icon('chart') + 'Sales pipeline</div>' +
+    fieldRow('Fase', 'pipeline_stage', '<select class="select" id="pipeline_stage" name="pipeline_stage"><option value="">Niet in de pipeline</option>' + STAGES.map(function (st) { return '<option value="' + st.key + '"' + (st.key === p.pipeline_stage ? ' selected' : '') + '>' + esc(st.title) + '</option>'; }).join('') + '</select>') +
+    fieldRow('Volgende stap', 'pipeline_next_step', textInput('pipeline_next_step', p.pipeline_next_step, { cls: 'text-field--full', ph: 'Bijv. mail sturen, bellen' })) +
+    fieldRow('Wanneer', 'pipeline_next_date', textInput('pipeline_next_date', p.pipeline_next_date || '', { type: 'date' })) +
+    (p.pipeline_since && inPipeline(p) ? '<p class="form-input__hint" style="margin-left:170px">In de pipeline sinds ' + esc(fmtDate(p.pipeline_since, true)) + '.</p>' : '') +
+    '</fieldset>') + '</form>';
   var side = '';
   if (!isNew) {
     var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); });
@@ -449,7 +562,7 @@ function vPartij() {
       }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog niemand vastgelegd.</p>') + '</div></div>';
   }
   var actions = isNew ? '' : '<button class="btn" type="button" data-act="delete-party" data-id="' + esc(p.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
-  return '<section class="container">' + actionbar(isNew ? 'Partij toevoegen' : p.name, actions) +
+  return '<section class="container">' + actionbar(isNew ? 'Partij toevoegen' : p.name, (isNew ? '' : stageLabel(p)) + actions) +
     '<div class="detail"' + (isNew ? ' style="grid-template-columns:minmax(0,816px)"' : '') + '><div>' + form +
     '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="save-party" data-id="' + esc(isNew ? '' : p.id) + '"><span class="btn__text">Opslaan</span></button><button class="btn" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div></div>' + side + '</div></section>';
 }
@@ -610,6 +723,12 @@ async function actSaveParty(id) {
   var v = readForm($('#f-party'));
   if (!v.name) { $('#name').parentNode.classList.add('text-field--error'); $('#name').focus(); toast('Vul een naam in.', 'danger'); return; }
   var row = { name: v.name, type_id: v.type_id || null, city: v.city || null, website: v.website || null, notes: v.notes || null };
+  if (!S.needsMigration) {
+    row.focus = readChips('focus'); row.markets = readTags('markets');
+    row.pipeline_stage = v.pipeline_stage || null; row.pipeline_next_step = v.pipeline_next_step || null; row.pipeline_next_date = v.pipeline_next_date || null;
+    var old = id ? IX.party[id] : null;
+    if (row.pipeline_stage && !(old && old.pipeline_since && old.pipeline_stage)) row.pipeline_since = todayIso();
+  }
   try {
     if (id) { Object.assign(IX.party[id], await Store.update('parties', id, row)); index(); dirty = false; toast('Opgeslagen.'); go('partij/' + id); }
     else { var p = await Store.insert('parties', row); S.parties.push(p); index(); dirty = false; toast(p.name + ' toegevoegd.'); go('partij/' + p.id); }
@@ -673,7 +792,9 @@ async function actImport(file) {
     var newParties = [];
     ps.concat(cs.filter(function (c) { return c.party; }).map(function (c) { return { name: c.party, type: c.party_type }; })).forEach(function (p) {
       if (!p.name || partyByName[norm(p.name)] || newParties.some(function (x) { return norm(x.name) === norm(p.name); })) return;
-      newParties.push({ name: p.name, type_id: p.type && typeByName[norm(p.type)] ? typeByName[norm(p.type)].id : null, city: p.city || null, website: p.website || null, notes: p.notes || null });
+      var np = { name: p.name, type_id: p.type && typeByName[norm(p.type)] ? typeByName[norm(p.type)].id : null, city: p.city || null, website: p.website || null, notes: p.notes || null };
+      if (!S.needsMigration) { np.focus = arr(p.focus).filter(function (f) { return FOCUS.indexOf(f) >= 0; }); np.markets = arr(p.markets); }
+      newParties.push(np);
     });
     (await Store.insertMany('parties', newParties)).forEach(function (p) { S.parties.push(p); partyByName[norm(p.name)] = p; });
     var existing = {}; S.contacts.forEach(function (c) { existing[norm(fullName(c))] = true; });
@@ -722,17 +843,23 @@ function bindEvents() {
         case 'save-party': actSaveParty(id); break;
         case 'delete-contact': actDeleteContact(id); break;
         case 'delete-party': actDeleteParty(id); break;
-        case 'back': dirty = false; if (history.length > 1) history.back(); else go('overzicht'); break;
+        case 'back': dirty = false; if (history.length > 1) history.back(); else go('actielijst'); break;
         case 'type-up': actTypeMove(id, -1); break;
         case 'type-down': actTypeMove(id, 1); break;
         case 'type-delete': actTypeDelete(id); break;
         case 'type-add': actTypeAdd(); break;
         case 'export': actExport(); break;
+        case 'stage': actStage(id, a.dataset.stage); break;
+        case 'new-lead': actNewLead(); break;
         case 'import': $('#import-file').click(); break;
         case 'logout': Store.signOut().then(function () { location.hash = ''; location.reload(); }); break;
       }
       return;
     }
+    var chip = t.closest('[data-chip]');
+    if (chip) { e.preventDefault(); var on = !chip.classList.contains('chip--on'); chip.classList.toggle('chip--on', on); chip.setAttribute('aria-pressed', on); chip.innerHTML = (on ? icon('check', 'icon--12') : '') + esc(chip.dataset.chip); dirty = true; return; }
+    if (t.closest('[data-tag-remove]')) { e.preventDefault(); t.closest('[data-tag]').remove(); dirty = true; return; }
+    if (t.closest('[data-tag-add]')) { e.preventDefault(); addTag(t.closest('.tags')); return; }
     var sw = t.closest('.switch');
     if (sw && sw.id === 'recurring') {
       var on = sw.getAttribute('aria-checked') !== 'true'; sw.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -747,6 +874,7 @@ function bindEvents() {
     if (t.dataset.filter) { S.filters[t.dataset.filter] = t.type === 'checkbox' ? t.checked : t.value; render(); return; }
     if (t.hasAttribute('data-afilter')) { go('actielijst' + (t.value === 'alles' ? '' : '/' + t.value)); return; }
     if (t.dataset.typeName) { actTypeRename(t.dataset.typeName, t.value); return; }
+    if (t.dataset.actChange === 'show-closed') { S.showClosed = t.checked; render(); return; }
     if (t.dataset.actChange === 'default-interval') { try { S.settings = await Store.saveSettings({ default_interval_months: +t.value }); toast('Opgeslagen.'); } catch (err) { fail(err); } return; }
     if (t.id === 'party_id' && t.value === '__new') {
       var p = await newPartyDialog();
@@ -761,21 +889,29 @@ function bindEvents() {
     if (t.id === 'zoek' || t.hasAttribute('data-q')) {
       S.q = t.value;
       $all('#zoek,[data-q]').forEach(function (o) { if (o !== t) o.value = t.value; });
-      if (['contacten', 'partijen', 'actielijst'].indexOf(route.view) < 0) { go('contacten'); }
+      if (['contacten', 'partijen', 'actielijst', 'pipeline'].indexOf(route.view) < 0) { go('contacten'); }
       else { var pos = t.selectionStart; var isTop = t.id === 'zoek'; render(); var el = isTop ? $('#zoek') : $('#' + t.id); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (x) {} } }
     }
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { closeMenus(); if ($('#popup').classList.contains('popup--open')) cancelPopup(); }
     if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !document.body.classList.contains('auth-mode')) { e.preventDefault(); $('#zoek').focus(); }
+    if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('pcard')) { go(e.target.dataset.href.replace(/^#/, '')); return; }
+    if (e.key === 'Enter' && e.target.hasAttribute && e.target.hasAttribute('data-tag-input')) { e.preventDefault(); e.stopPropagation(); addTag(e.target.closest('.tags')); return; }
     if (e.key === 'Enter' && e.target.id === 'new-type') { e.preventDefault(); actTypeAdd(); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && $('#popup').classList.contains('popup--open')) { var b = $('#popup [data-pbtn="0"]'); if (b) b.click(); }
     if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.closest('#f-contact,#f-party')) { e.preventDefault(); var s = $('[data-act="save-contact"],[data-act="save-party"]'); if (s) s.click(); }
   });
   $('#overlay').addEventListener('click', cancelPopup);
+  var dragId = null;
+  document.addEventListener('dragstart', function (e) { var c = e.target.closest && e.target.closest('.pcard'); if (!c) return; dragId = c.dataset.pid; c.classList.add('pcard--dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (x) {} });
+  document.addEventListener('dragend', function () { dragId = null; $all('.pcard--dragging').forEach(function (c) { c.classList.remove('pcard--dragging'); }); $all('.pcol--over').forEach(function (c) { c.classList.remove('pcol--over'); }); });
+  document.addEventListener('dragover', function (e) { var b = e.target.closest && e.target.closest('.pcol'); if (!b || !dragId) return; e.preventDefault(); $all('.pcol--over').forEach(function (c) { if (c !== b) c.classList.remove('pcol--over'); }); b.classList.add('pcol--over'); });
+  document.addEventListener('drop', function (e) { var b = e.target.closest && e.target.closest('.pcol'); if (!b || !dragId) return; e.preventDefault(); var id = dragId; dragId = null; b.classList.remove('pcol--over'); actStage(id, b.dataset.stage); });
   window.addEventListener('hashchange', function () { dirty = false; render(); window.scrollTo(0, 0); });
   window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && !dirty && Store.user && Date.now() - S.loadedAt > 60000 && !$('#popup').classList.contains('popup--open')) reload(true); });
+  $all('[data-toggle]').forEach(function (tg) { tg.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); var li = tg.closest('.sidenav__item'), open = li.classList.toggle('sidenav__item--open'); tg.setAttribute('aria-expanded', open ? 'true' : 'false'); }); });
   $('#inklappen').addEventListener('click', function (e) { e.preventDefault(); document.body.classList.toggle('sidenav-collapsed'); try { localStorage.setItem('crm.collapsed', document.body.classList.contains('sidenav-collapsed') ? '1' : ''); } catch (x) {} });
   try { if (localStorage.getItem('crm.collapsed')) document.body.classList.add('sidenav-collapsed'); } catch (x) {}
 }

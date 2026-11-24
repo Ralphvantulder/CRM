@@ -33,7 +33,7 @@
 <nav class="topnav" aria-label="Hoofdbalk">
   <div class="topnav__items">
     <div class="topnav__left">
-      <a class="topnav__branding" href="#overzicht">
+      <a class="topnav__branding" href="#actielijst">
         <span class="topnav__branding-mark" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
         <span class="topnav__branding-text">CRM</span>
       </a>
@@ -55,6 +55,7 @@
         <div class="drpdwn__menu drpdwn__menu--right" role="menu">
           <button class="drpdwn__item" role="menuitem" data-href="#contact/nieuw"><svg class="icon"><use href="#i-user"/></svg>Contact</button>
           <button class="drpdwn__item" role="menuitem" data-href="#partij/nieuw"><svg class="icon"><use href="#i-building"/></svg>Partij</button>
+          <button class="drpdwn__item" role="menuitem" data-act="new-lead"><svg class="icon"><use href="#i-chart"/></svg>Partij in de pipeline</button>
         </div>
       </div>
       <div class="drpdwn topnav__user">
@@ -75,10 +76,17 @@
 <!-- ===================== ZIJBALK ===================== -->
 <nav class="sidenav" aria-label="Hoofdnavigatie">
   <ul class="sidenav__items">
-    <li class="sidenav__item"><a class="sidenav__item-link" href="#overzicht" data-nav="overzicht"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-home"/></svg></span><span class="sidenav__item-text">Overzicht</span></a></li>
-    <li class="sidenav__item"><a class="sidenav__item-link" href="#actielijst" data-nav="actielijst"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-action"/></svg></span><span class="sidenav__item-text">Actielijst</span><span class="badge hidden" data-count="actie" style="margin-right:8px"></span></a></li>
-    <li class="sidenav__item"><a class="sidenav__item-link" href="#contacten" data-nav="contacten"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-contacts"/></svg></span><span class="sidenav__item-text">Contacten</span></a></li>
-    <li class="sidenav__item"><a class="sidenav__item-link" href="#partijen" data-nav="partijen"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-building"/></svg></span><span class="sidenav__item-text">Partijen</span></a></li>
+    <li class="sidenav__item sidenav__item--group sidenav__item--open">
+      <a class="sidenav__item-link" href="#actielijst" data-group="relaties"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-users"/></svg></span><span class="sidenav__item-text">Relaties</span>
+        <button class="sidenav__item-toggle" type="button" aria-label="Relaties uitklappen" aria-expanded="true" data-toggle><svg class="icon"><use href="#i-chevron-down"/></svg></button></a>
+      <ul class="sidenav__subitems">
+        <li><a class="sidenav__subitem-link" href="#actielijst" data-nav="actielijst">Actielijst<span class="badge hidden" data-count="actie" style="margin-left:auto;margin-right:8px"></span></a></li>
+        <li><a class="sidenav__subitem-link" href="#contacten" data-nav="contacten">Contacten</a></li>
+        <li><a class="sidenav__subitem-link" href="#partijen" data-nav="partijen">Partijen</a></li>
+      </ul>
+    </li>
+    <li class="sidenav__item"><a class="sidenav__item-link" href="#pipeline" data-nav="pipeline"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-chart"/></svg></span><span class="sidenav__item-text">Sales pipeline</span><span class="badge hidden" data-count="pipeline" style="margin-right:8px"></span></a></li>
+    <li class="sidenav__divider" role="separator"></li>
     <li class="sidenav__item"><a class="sidenav__item-link" href="#instellingen" data-nav="instellingen"><span class="sidenav__item-icon"><svg class="icon"><use href="#i-settings"/></svg></span><span class="sidenav__item-text">Instellingen</span></a></li>
   </ul>
   <div class="sidenav__footer">
@@ -91,10 +99,10 @@
 
 <!-- ===================== MOBIELE ONDERBALK ===================== -->
 <nav class="tabbar" aria-label="Navigatie">
-  <a class="tabbar__item" href="#overzicht" data-nav="overzicht"><svg class="icon"><use href="#i-home"/></svg>Overzicht</a>
   <a class="tabbar__item" href="#actielijst" data-nav="actielijst"><svg class="icon"><use href="#i-action"/></svg>Actielijst<span class="tabbar__count hidden" data-count="actie"></span></a>
   <a class="tabbar__item" href="#contacten" data-nav="contacten"><svg class="icon"><use href="#i-contacts"/></svg>Contacten</a>
   <a class="tabbar__item" href="#partijen" data-nav="partijen"><svg class="icon"><use href="#i-building"/></svg>Partijen</a>
+  <a class="tabbar__item" href="#pipeline" data-nav="pipeline"><svg class="icon"><use href="#i-chart"/></svg>Pipeline<span class="tabbar__count hidden" data-count="pipeline"></span></a>
   <a class="tabbar__item" href="#instellingen" data-nav="instellingen"><svg class="icon"><use href="#i-settings"/></svg>Meer</a>
 </nav>
 

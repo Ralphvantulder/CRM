@@ -18,6 +18,12 @@ create table if not exists public.parties (
   city        text,
   website     text,
   notes       text,
+  pipeline_stage     text check (pipeline_stage is null or pipeline_stage in ('te_benaderen','benaderd','in_gesprek','voorstel','gewonnen','afgevallen')),
+  pipeline_next_step text,
+  pipeline_next_date date,
+  pipeline_since     date,
+  focus              text[] not null default '{}',
+  markets            text[] not null default '{}',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

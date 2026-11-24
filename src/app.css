@@ -126,6 +126,63 @@ body.auth-mode .auth{display:flex}
 /* topnav: toevoegknop en gebruiker */
 .topnav__user .btn__text{max-width:14rem}
 
+/* zijbalk: scheiding tussen relaties, pipeline en instellingen */
+.sidenav__divider{height:1px;background:var(--border);margin:8px 4px 12px}
+.sidenav__subitem-link .badge{margin-left:auto}
+.sidenav__subitem-link--active .badge{background:#fff;color:var(--b600)}
+.sidenav__item-link--active .badge{background:#fff;color:var(--b600)}
+
+/* focus-chips en markt-tags */
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:var(--radius);border:1px solid var(--input-border);background:var(--n0);
+  color:var(--primary-text);font:500 var(--text-body)/1 var(--font);cursor:pointer}
+.chip:hover{background:var(--hover-bg)}
+.chip--on,.chip--on:hover{background:var(--active-bg);border-color:var(--active-border);color:var(--active-text)}
+.tags{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-height:28px}
+.tag{display:inline-flex;align-items:center;gap:2px;height:24px;padding:0 4px 0 8px;border-radius:var(--radius);background:var(--n100);color:var(--primary-text);font:500 12px/18px var(--font);white-space:nowrap}
+.tag--small{height:20px;padding:0 6px;margin-right:4px;font-weight:500;color:var(--n600)}
+.tag__x{border:0;background:none;color:var(--n500);cursor:pointer;width:18px;height:18px;border-radius:4px;font-size:14px;line-height:1;padding:0}
+.tag__x:hover{background:var(--n200);color:var(--n800)}
+.tags__add{display:inline-flex;align-items:center;gap:4px}
+.tags__add .text-field__input{width:160px}
+
+/* statuslabel pipelinefase */
+.stage-label{display:inline-flex;align-items:center;height:20px;padding:0 6px;margin-left:8px;border-radius:var(--radius);font:600 11px/1 var(--font);white-space:nowrap;background:var(--b100);color:var(--b600);flex-shrink:0}
+.stage-label--te_benaderen{background:var(--n100);color:var(--n600)}
+.stage-label--voorstel{background:var(--y100);color:var(--y600)}
+.stage-label--gewonnen{background:var(--g100);color:var(--g600)}
+.stage-label--afgevallen{background:var(--r100);color:var(--r600)}
+.actionbar__actions .stage-label{height:28px;padding:0 10px;font-size:12px;margin-right:4px}
+.table col.c-focus{width:150px}
+.table col.c-party{width:27%}
+.tab-group{overflow-x:auto;scrollbar-width:none;max-width:100%}
+.tab{white-space:nowrap;flex-shrink:0}
+
+/* pipelinebord */
+.container--wide{max-width:1440px}
+.pboard{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(220px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px;align-items:start}
+.pcol{background:var(--n100);border-radius:var(--radius-container);padding:8px;min-height:160px;transition:background .1s}
+.pcol--over{background:var(--b100);box-shadow:inset 0 0 0 2px var(--b300)}
+.pcol__head{display:flex;align-items:center;justify-content:space-between;padding:4px 8px 10px;font-weight:500;color:var(--primary-title)}
+.pcol__body{display:flex;flex-direction:column;gap:8px;min-height:40px}
+.pcard{background:var(--container-background);border-radius:var(--radius);box-shadow:var(--shadow-container);padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:4px;outline:0}
+.pcard:hover{box-shadow:var(--shadow-dropdown)}
+.pcard:focus-visible{outline:2px solid var(--focus-outline)}
+.pcard--dragging{opacity:.5}
+.pcard__top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.pcard__name{font-weight:600;color:var(--primary-title);line-height:20px;padding-top:4px;overflow-wrap:anywhere}
+.pcard__menu{flex-shrink:0;color:var(--n500)}
+.pcard__meta,.pcard__people{color:var(--secondary-text);font-size:13px;line-height:18px}
+.pcard__people{display:flex;gap:6px;align-items:center}
+.pcard__people span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pcard__tags{display:flex;flex-wrap:wrap;gap:4px}
+.pcard__tags .tag--small{margin:0}
+.pcard__next{display:flex;align-items:center;gap:6px;margin-top:4px;padding-top:6px;border-top:1px solid var(--border);font-size:13px;line-height:18px;color:var(--primary-text)}
+.pcard__next--late{color:var(--r600)}
+.pcard__next--soon{color:var(--y600)}
+.pcol__add{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px;border:0;border-radius:var(--radius);background:none;color:var(--secondary-text);font:500 var(--text-body)/1 var(--font);cursor:pointer}
+.pcol__add:hover{background:var(--n200);color:var(--primary-text)}
+
 /* mobiele onderbalk */
 .tabbar{display:none}
 .only-m{display:none}
@@ -172,6 +229,11 @@ body.auth-mode .auth{display:flex}
   .text-field{width:100%}
   .type-row .text-field__input{width:100%}
   .type-row .text-field{flex:1}
+  .table col.c-party{width:60%}
+  .pboard{grid-auto-columns:82%;scroll-snap-type:x mandatory}
+  .pcol{scroll-snap-align:start}
+  .tags__add .text-field__input{width:140px}
+  .detail .tags__add .text-field__input{width:140px}
   .toast{bottom:96px}
   .topnav__branding-text{display:inline}
   .topnav__branding{width:auto}
