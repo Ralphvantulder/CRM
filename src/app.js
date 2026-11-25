@@ -153,7 +153,9 @@ var Demo = { data: null, build: function () {
    STAAT EN AFGELEIDE GEGEVENS
    ============================================================ */
 var S = { types: [], parties: [], contacts: [], interactions: [], settings: { default_interval_months: 3 }, loadedAt: 0,
-  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, ptype: '', afilter: 'alles', pfocus: '', pmarket: '', pstage: '' } };
+  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, crole: '', cdue: '', ptype: '', afilter: 'alles', pfocus: '', pmarket: '', pstage: '', pknown: '' },
+  sort: { contacten: { k: 'naam', d: 1 }, partijen: { k: 'partij', d: 1 } } };
+try { var savedSort = JSON.parse(localStorage.getItem('crm.sort') || 'null'); if (savedSort) Object.keys(S.sort).forEach(function (v) { if (savedSort[v] && savedSort[v].k) S.sort[v] = { k: savedSort[v].k, d: savedSort[v].d === -1 ? -1 : 1 }; }); } catch (e) {}
 
 function setData(d) {
   S.types = d.party_types.slice().sort(function (a, b) { return (a.sort - b.sort) || cmpName(a.name, b.name); });
@@ -359,6 +361,37 @@ function vActielijst() {
     '<span class="filterbar__count">' + plural(shown, 'contact', 'contacten') + '</span></div>' + groups + '</section>';
 }
 
+/* ---------- SORTEREN EN FILTEREN ---------- */
+/* sorteer op kolom: lege waarden altijd onderaan, bij gelijke waarde op naam */
+function sortList(list, view, getters, tiebreak) {
+  var st = S.sort[view], get = getters[st.k] || getters[Object.keys(getters)[0]];
+  return list.map(function (x) { return { x: x, v: get(x) }; }).sort(function (a, b) {
+    var ea = a.v === null || a.v === undefined || a.v === '', eb = b.v === null || b.v === undefined || b.v === '';
+    if (ea || eb) return ea && eb ? tiebreak(a.x, b.x) : ea ? 1 : -1;
+    var r = typeof a.v === 'number' && typeof b.v === 'number' ? a.v - b.v : cmpName(String(a.v), String(b.v));
+    return r ? r * st.d : tiebreak(a.x, b.x);
+  }).map(function (o) { return o.x; });
+}
+function sortTh(view, key, label, cls) {
+  var st = S.sort[view], on = st.k === key;
+  return '<th' + (cls ? ' class="' + cls + '"' : '') + ' aria-sort="' + (on ? (st.d === 1 ? 'ascending' : 'descending') : 'none') + '"><button class="th-sort' + (on ? ' th-sort--on' : '') + '" type="button" data-sort="' + view + ':' + key + '" title="Sorteren op ' + esc(label.toLowerCase()) + '"><span>' + esc(label) + '</span>' + icon(on && st.d === -1 ? 'chevron-up' : 'chevron-down', 'icon--12 th-sort__icon') + '</button></th>';
+}
+function setSort(view, key) {
+  var st = S.sort[view];
+  S.sort[view] = st.k === key ? { k: key, d: -st.d } : { k: key, d: 1 };
+  try { localStorage.setItem('crm.sort', JSON.stringify(S.sort)); } catch (e) {}
+  render();
+}
+function filterToggle(key, label) {
+  var on = !!S.filters[key];
+  return '<button class="filter-toggle' + (on ? ' filter-toggle--on' : '') + '" type="button" data-filter-toggle="' + key + '" aria-pressed="' + on + '">' + icon(on ? 'check' : 'clock', 'icon--12') + esc(label) + '</button>';
+}
+function clearFilters(keys) {
+  return keys.some(function (k) { return S.filters[k]; }) ? '<button class="filter-clear" type="button" data-clear-filters="' + keys.join(',') + '">Filters wissen</button>' : '';
+}
+function allRoles() { var m = {}; S.contacts.forEach(function (c) { if (c.role && c.role.trim()) m[norm(c.role)] = m[norm(c.role)] || c.role.trim(); }); return Object.keys(m).map(function (k) { return m[k]; }).sort(cmpName); }
+var DUE_FILTERS = [['late', 'Te laat'], ['week', 'Komende 7 dagen'], ['month', 'Komende 30 dagen'], ['later', 'Later'], ['none', 'Nog niet gesproken'], ['off', 'Niet herhaaldelijk']];
+
 /* ---------- CONTACTEN ---------- */
 function vContacten() {
   var F = S.filters;
@@ -368,21 +401,37 @@ function vContacten() {
     if (F.ctype && (!p || p.type_id !== F.ctype)) return false;
     if (F.cparty && c.party_id !== F.cparty) return false;
     if (F.crec && !c.recurring) return false;
+    if (F.crole && norm(c.role) !== norm(F.crole)) return false;
+    if (F.cdue && (F.cdue === 'off' ? c.recurring : !c.recurring || bucket(c) !== F.cdue)) return false;
     return true;
-  }).sort(function (a, b) { return cmpName(a.last_name + ' ' + a.first_name, b.last_name + ' ' + b.first_name); });
+  });
+  var byName = function (a, b) { return cmpName(a.last_name + ' ' + a.first_name, b.last_name + ' ' + b.first_name); };
+  list = sortList(list, 'contacten', {
+    naam: function (c) { return (c.last_name || '') + ' ' + (c.first_name || ''); },
+    functie: function (c) { return c.role; },
+    partij: function (c) { var p = partyOf(c); return p ? p.name : ''; },
+    type: function (c) { var t = typeOfParty(partyOf(c)); return t ? t.sort : null; },
+    last: function (c) { var d = lastContact(c); return d ? d.getTime() : null; },
+    rec: function (c) { return c.recurring ? +c.interval_months : null; },
+    due: function (c) { if (!c.recurring) return null; var d = nextDue(c); return d ? d.getTime() : -1e15; }
+  }, byName);
+  var roles = allRoles();
+  if (F.crole && !roles.some(function (r) { return norm(r) === norm(F.crole); })) F.crole = '';
   var filters = '<div class="filterbar">' + searchField('q-c', 'Zoek een contact') +
     '<select class="select" data-filter="ctype" aria-label="Partijtype">' + typeOptions(F.ctype, 'Alle partijtypes') + '</select>' +
     '<select class="select" data-filter="cparty" aria-label="Partij">' + partyOptions(F.cparty, 'Alle partijen') + '</select>' +
-    '<label class="checkbox"><input type="checkbox" data-filter="crec"' + (F.crec ? ' checked' : '') + '>Alleen herhaaldelijk</label>' +
+    '<select class="select" data-filter="crole" aria-label="Functie"><option value="">Alle functies</option>' + roles.map(function (r) { return '<option' + (norm(r) === norm(F.crole) ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>' +
+    '<select class="select" data-filter="cdue" aria-label="Volgende keer"><option value="">Elke opvolging</option>' + DUE_FILTERS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === F.cdue ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
+    filterToggle('crec', 'Alleen herhaaldelijk') + clearFilters(['ctype', 'cparty', 'crole', 'cdue', 'crec']) +
     '<span class="filterbar__count">' + plural(list.length, 'contact', 'contacten') + '</span></div>';
-  var body = list.length ? '<div class="table-container"><table class="table table--stack"><colgroup><col><col class="hide-m"><col class="hide-m"><col class="c-type hide-m"><col class="c-date hide-m"><col class="c-rec hide-m"><col class="c-due"></colgroup><thead><tr><th>Naam</th><th class="hide-m">Functie</th><th class="hide-m">Partij</th><th class="hide-m">Type</th><th class="hide-m">Laatst gesproken</th><th class="hide-m">Herhaaldelijk</th><th>Volgende keer</th></tr></thead><tbody>' +
+  var body = list.length ? '<div class="table-container"><table class="table table--stack table--sortable"><colgroup><col class="c-name"><col class="hide-m"><col class="hide-m"><col class="c-type hide-m"><col class="c-date hide-m"><col class="c-rec hide-m"><col class="c-due"></colgroup><thead><tr>' + sortTh('contacten', 'naam', 'Naam') + sortTh('contacten', 'functie', 'Functie', 'hide-m') + sortTh('contacten', 'partij', 'Partij', 'hide-m') + sortTh('contacten', 'type', 'Type', 'hide-m') + sortTh('contacten', 'last', 'Laatst gesproken', 'hide-m') + sortTh('contacten', 'rec', 'Herhaaldelijk', 'hide-m') + sortTh('contacten', 'due', 'Volgende keer') + '</tr></thead><tbody>' +
     list.map(function (c) {
       var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
       return '<tr class="table__row--link" data-href="#contact/' + esc(c.id) + '"><td>' + personCell(c, c.role, 'person__sub--m') + '</td><td class="hide-m">' + (c.role ? esc(c.role) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + esc(p ? p.name : '') + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td>' +
         '<td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + (c.recurring ? '<span class="recurring-mark">' + icon('check') + esc(c.interval_months) + ' mnd</span>' : '<span class="muted">Nee</span>') + '</td><td>' + dueLabel(c) + '</td></tr>';
     }).join('') + '</tbody></table></div>'
     : '<div class="base-container">' + (S.contacts.length ? emptyState('Geen contacten gevonden', 'Pas de filters of de zoekterm aan.') : emptyState('Nog geen contacten', 'Voeg je eerste contact toe, of importeer een bestand via Instellingen.', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>')) + '</div>';
-  return '<section class="container">' + actionbar('Contacten', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') + filters + body + '</section>';
+  return '<section class="container container--wide">' + actionbar('Contacten', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>') + filters + body + '</section>';
 }
 
 /* ---------- PARTIJEN ---------- */
@@ -395,14 +444,26 @@ function vPartijen() {
   var F = S.filters, markets = allMarkets();
   if (F.pmarket && !markets.some(function (m) { return norm(m) === norm(F.pmarket); })) F.pmarket = '';
   var list = S.parties.filter(function (p) {
-    return (!ft || p.type_id === ft) && matchQParty(p) && (!F.pfocus || arr(p.focus).indexOf(F.pfocus) >= 0) && (!F.pmarket || arr(p.markets).some(function (m) { return norm(m) === norm(F.pmarket); })) && (!F.pstage || (F.pstage === 'geen' ? !inPipeline(p) : p.pipeline_stage === F.pstage));
-  }).sort(function (a, b) { return cmpName(a.name, b.name); });
+    return (!ft || p.type_id === ft) && matchQParty(p) && (!F.pfocus || arr(p.focus).indexOf(F.pfocus) >= 0) && (!F.pmarket || arr(p.markets).some(function (m) { return norm(m) === norm(F.pmarket); })) && (!F.pstage || (F.pstage === 'geen' ? !inPipeline(p) : p.pipeline_stage === F.pstage)) && (!F.pknown || (F.pknown === 'ja') === !!(IX.byParty[p.id] || []).length);
+  });
+  var lastOfParty = function (p) { return (IX.byParty[p.id] || []).map(lastContact).filter(Boolean).sort(function (a, b) { return b - a; })[0] || null; };
+  list = sortList(list, 'partijen', {
+    partij: function (p) { return p.name; },
+    type: function (p) { var t = typeOfParty(p); return t ? t.sort : null; },
+    status: function (p) { return inPipeline(p) ? STAGE[p.pipeline_stage].i : null; },
+    focus: function (p) { var f = sortedFocus(p); return f.length ? FOCUS.indexOf(f[0]) : null; },
+    markten: function (p) { return arr(p.markets).slice().sort(cmpName)[0] || ''; },
+    wie: function (p) { var n = (IX.byParty[p.id] || []).length; return n || null; },
+    last: function (p) { var d = lastOfParty(p); return d ? d.getTime() : null; }
+  }, function (a, b) { return cmpName(a.name, b.name); });
   var pfilters = S.needsMigration ? '' : '<div class="filterbar">' + searchField('q-p', 'Zoek een partij of persoon') +
     '<select class="select" data-filter="pfocus" aria-label="Focus"><option value="">Alle focus</option>' + FOCUS.map(function (f) { return '<option' + (f === F.pfocus ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join('') + '</select>' +
     '<select class="select" data-filter="pmarket" aria-label="Markt"><option value="">Alle markten</option>' + markets.map(function (m) { return '<option' + (norm(m) === norm(F.pmarket) ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select>' +
     '<select class="select" data-filter="pstage" aria-label="Status"><option value="">Alle statussen</option>' + STAGES.map(function (st) { return '<option value="' + st.key + '"' + (st.key === F.pstage ? ' selected' : '') + '>' + esc(st.title) + '</option>'; }).join('') + '<option value="geen"' + (F.pstage === 'geen' ? ' selected' : '') + '>Niet in de pipeline</option></select>' +
+    '<select class="select" data-filter="pknown" aria-label="Wie ken ik"><option value="">Met en zonder contacten</option><option value="ja"' + (F.pknown === 'ja' ? ' selected' : '') + '>Met contacten</option><option value="nee"' + (F.pknown === 'nee' ? ' selected' : '') + '>Nog niemand</option></select>' +
+    clearFilters(['pfocus', 'pmarket', 'pstage', 'pknown']) +
     '<span class="filterbar__count">' + plural(list.length, 'partij', 'partijen') + '</span></div>';
-  var body = list.length ? '<div class="table-container"><table class="table"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-status hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr><th>Partij</th><th class="hide-m">Type</th><th class="hide-m">Status</th><th class="hide-m">Focus</th><th class="hide-m">Markten</th><th>Wie ken ik</th><th class="hide-m">Laatst gesproken</th></tr></thead><tbody>' +
+  var body = list.length ? '<div class="table-container"><table class="table table--sortable"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-status hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr>' + sortTh('partijen', 'partij', 'Partij') + sortTh('partijen', 'type', 'Type', 'hide-m') + sortTh('partijen', 'status', 'Status', 'hide-m') + sortTh('partijen', 'focus', 'Focus', 'hide-m') + sortTh('partijen', 'markten', 'Markten', 'hide-m') + sortTh('partijen', 'wie', 'Wie ken ik') + sortTh('partijen', 'last', 'Laatst gesproken', 'hide-m') + '</tr></thead><tbody>' +
     list.map(function (p) {
       var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); }), t = typeOfParty(p);
       var last = cs.map(lastContact).filter(Boolean).sort(function (a, b) { return b - a; })[0];
@@ -557,7 +618,7 @@ function vContact() {
     fieldRow('Notitie', 'notes', '<textarea class="textarea" id="notes" name="notes">' + esc(c.notes || '') + '</textarea>', true) +
     '</fieldset>' +
     '<fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('clock') + 'Opvolging</div>' +
-    fieldRow('Herhaaldelijk spreken', 'recurring', '<button class="switch" type="button" role="switch" id="recurring" aria-checked="' + (c.recurring ? 'true' : 'false') + '" aria-label="Herhaaldelijk spreken"></button><span class="muted" id="recurring-hint">' + (c.recurring ? 'Staat op de actielijst' : 'Staat niet op de actielijst') + '</span>') +
+    fieldRow('Herhaaldelijk spreken', 'recurring', '<span class="switch-row"><button class="switch" type="button" role="switch" id="recurring" aria-checked="' + (c.recurring ? 'true' : 'false') + '" aria-label="Herhaaldelijk spreken"><span class="switch__knob"></span></button><span class="switch-row__hint" id="recurring-hint">' + (c.recurring ? 'Staat op de actielijst' : 'Staat niet op de actielijst') + '</span></span>') +
     '<div id="rec-fields"' + (c.recurring ? '' : ' class="hidden"') + '>' +
     fieldRow('Elke', 'interval_months', '<select class="select" id="interval_months" name="interval_months" style="width:160px">' + intervals.map(function (n) { return '<option value="' + n + '"' + (n === +c.interval_months ? ' selected' : '') + '>' + plural(n, 'maand', 'maanden') + '</option>'; }).join('') + '</select>') +
     (isNew ? fieldRow('Laatst gesproken', 'last_spoken', textInput('last_spoken', '', { type: 'date' }) + '<span class="muted">optioneel</span>') : '') +
@@ -946,6 +1007,12 @@ function bindEvents() {
     if (chip) { e.preventDefault(); var on = !chip.classList.contains('chip--on'); chip.classList.toggle('chip--on', on); chip.setAttribute('aria-pressed', on); chip.innerHTML = (on ? icon('check', 'icon--12') : '') + esc(chip.dataset.chip); dirty = true; return; }
     if (t.closest('[data-tag-remove]')) { e.preventDefault(); t.closest('[data-tag]').remove(); dirty = true; return; }
     if (t.closest('[data-tag-add]')) { e.preventDefault(); addTag(t.closest('.tags')); return; }
+    var so = t.closest('[data-sort]');
+    if (so) { e.preventDefault(); var sp = so.dataset.sort.split(':'); setSort(sp[0], sp[1]); return; }
+    var ft = t.closest('[data-filter-toggle]');
+    if (ft) { e.preventDefault(); S.filters[ft.dataset.filterToggle] = !S.filters[ft.dataset.filterToggle]; render(); return; }
+    var cf = t.closest('[data-clear-filters]');
+    if (cf) { e.preventDefault(); cf.dataset.clearFilters.split(',').forEach(function (k) { S.filters[k] = typeof S.filters[k] === 'boolean' ? false : ''; }); render(); return; }
     var sw = t.closest('.switch');
     if (sw && sw.id === 'recurring') {
       var on = sw.getAttribute('aria-checked') !== 'true'; sw.setAttribute('aria-checked', on ? 'true' : 'false');
