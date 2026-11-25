@@ -97,10 +97,16 @@ var Store = {
     await Promise.all(TABLES.map(async function (t) {
       var r = await self.sb.from(t).select('*');
       if (r.error) throw r.error; out[t] = r.data;
-    }), (async function () {
+    }).concat([(async function () {
       var r = await self.sb.from('parties').select('pipeline_stage,focus,markets').limit(1);
       out.needsMigration = !!r.error;
-    })());
+    })(), (async function () {
+      var r = await self.sb.from('parties').select('aum_mln,aum_note').limit(1);
+      out.needsAum = !!r.error;
+    })(), (async function () {
+      var r = await self.sb.from('prospects').select('*');
+      out.prospects = r.error ? [] : r.data; out.needsProspects = !!r.error;
+    })()]));
     return out;
   },
   insert: async function (t, row) {
@@ -146,28 +152,38 @@ var Demo = { data: null, build: function () {
     if (c[6] !== null) inter.push({ id: 'x' + i, contact_id: 'c' + i, date: isoDate(addDays(today(), c[6])), kind: KINDS[i % 4], notes: i % 2 ? 'Bijgepraat over de markt en lopende trajecten.' : '', created_at: '2026-05-01T09:00:00Z' });
   });
   inter.push({ id: 'x99', contact_id: 'c0', date: isoDate(addDays(today(), -200)), kind: 'Lunch', notes: 'Kennismaking.', created_at: '2026-05-01T09:00:00Z' });
-  this.data = { party_types: t, parties: parties, contacts: contacts, interactions: inter, settings: [{ owner_id: 'demo', default_interval_months: 3 }] };
+  parties.forEach(function (p, i) { p.aum_mln = p.type_id === 't1' ? [450, 1200, 85][i % 3] : null; p.aum_note = p.aum_mln ? 'Voorbeeld: som van de actieve fondsen.' : null; });
+  var X = [['Waddenkust Participaties', 'Groningen', ['MKB'], ['Zorg', 'Industrie'], 180, 'Meerderheidsbelangen in bedrijven met een EBITDA van € 1 tot 5 mln.', 'Fonds II (2019) € 80 mln + Fonds III (2023) € 100 mln.', [['Marit', 'Hoekstra', 'Managing partner', true], ['Sjoerd', 'de Boer', 'Partner', true], ['Tessa', 'Veenstra', 'Partner', false]]],
+    ['Zuiderlicht Ventures', 'Eindhoven', ['VC'], ['Deeptech', 'Software'], 95, 'Vroege fase, tickets van € 0,5 tot 5 mln.', 'Fonds I (2021) € 95 mln.', [['Ruben', 'Aarts', 'General partner', true], ['Noor', 'el Idrissi', 'Partner', false]]],
+    ['Rivierland Capital', 'Nijmegen', ['MKB', 'Mid-cap'], ['Zakelijke dienstverlening', 'Software'], 620, 'EBITDA € 3 tot 20 mln, meerderheid en minderheid.', 'Opgegeven beheerd vermogen (website, 2026).', [['Joost', 'Hendriks', 'Managing partner', true]]],
+    ['Maasoever Equity Partners', 'Rotterdam', ['Mid-cap', 'Large-cap'], ['Industrie', 'Logistiek'], 2400, 'Ondernemingswaarde € 100 tot 750 mln.', 'Fonds V (2020) € 900 mln + Fonds VI (2024) € 1.500 mln.', [['Carlijn', 'Vos', 'Partner', true], ['Pieter', 'van Dam', 'Partner', true], ['Olaf', 'Brouwer', 'Managing partner', false]]],
+    ['Veluwe Groeikapitaal', 'Apeldoorn', [], [], null, null, null, []]];
+  var prospects = X.map(function (x, i) { return { id: 'x' + i, list: 'pe-nl', name: x[0], city: x[1], website: 'https://voorbeeld.nl', member_of: 'NVP', focus: x[2], markets: x[3], aum_mln: x[4], focus_note: x[5], aum_note: x[6], remarks: i === 4 ? 'Website gaf geen investeringscriteria of team.' : null, party_id: null, checked_at: todayIso(), sources: ['https://voorbeeld.nl/team'],
+    people: x[7].map(function (h) { return { first_name: h[0], last_name: h[1], role: h[2], email: h[3] ? h[0].toLowerCase() + '@voorbeeld.nl' : null, linkedin: null, source: 'https://voorbeeld.nl/team' }; }) }; });
+  this.data = { party_types: t, parties: parties, contacts: contacts, interactions: inter, prospects: prospects, settings: [{ owner_id: 'demo', default_interval_months: 3 }] };
 } };
 
 /* ============================================================
    STAAT EN AFGELEIDE GEGEVENS
    ============================================================ */
-var S = { types: [], parties: [], contacts: [], interactions: [], settings: { default_interval_months: 3 }, loadedAt: 0,
-  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, crole: '', cdue: '', ptype: '', afilter: 'alles', pfocus: '', pmarket: '', pstage: '', pknown: '' },
-  sort: { contacten: { k: 'naam', d: 1 }, partijen: { k: 'partij', d: 1 } } };
+var S = { types: [], parties: [], contacts: [], interactions: [], prospects: [], needsAum: false, needsProspects: false, settings: { default_interval_months: 3 }, loadedAt: 0,
+  q: '', needsMigration: false, showClosed: false, filters: { ctype: '', cparty: '', crec: false, crole: '', cdue: '', ptype: '', afilter: 'alles', pfocus: '', pmarket: '', pstage: '', pknown: '', xfocus: '', xmarket: '', xmail: false, xstatus: '' },
+  sort: { contacten: { k: 'naam', d: 1 }, partijen: { k: 'partij', d: 1 }, pelijst: { k: 'naam', d: 1 } } };
 try { var savedSort = JSON.parse(localStorage.getItem('crm.sort') || 'null'); if (savedSort) Object.keys(S.sort).forEach(function (v) { if (savedSort[v] && savedSort[v].k) S.sort[v] = { k: savedSort[v].k, d: savedSort[v].d === -1 ? -1 : 1 }; }); } catch (e) {}
 
 function setData(d) {
   S.types = d.party_types.slice().sort(function (a, b) { return (a.sort - b.sort) || cmpName(a.name, b.name); });
   S.parties = d.parties; S.contacts = d.contacts.filter(function (c) { return !c.archived; });
   S.interactions = d.interactions; S.settings = d.settings[0] || { default_interval_months: 3 };
-  S.needsMigration = !!d.needsMigration;
+  S.needsMigration = !!d.needsMigration; S.needsAum = !!d.needsAum; S.needsProspects = !!d.needsProspects; S.prospects = d.prospects || [];
   S.loadedAt = Date.now(); index();
 }
 var IX = {};
 function index() {
   IX.type = {}; S.types.forEach(function (t) { IX.type[t.id] = t; });
-  IX.party = {}; S.parties.forEach(function (p) { IX.party[p.id] = p; });
+  IX.party = {}; IX.partyName = {}; S.parties.forEach(function (p) { IX.party[p.id] = p; IX.partyName[norm(p.name)] = p; });
+  IX.prospect = {}; S.prospects.forEach(function (x) { IX.prospect[x.id] = x; });
+  IX.mail = {}; IX.person = {}; S.contacts.forEach(function (c) { if (c.email) IX.mail[norm(c.email).trim()] = c; IX.person[norm(fullName(c))] = c; });
   IX.contact = {}; S.contacts.forEach(function (c) { IX.contact[c.id] = c; });
   IX.byContact = {}; S.interactions.forEach(function (x) { (IX.byContact[x.contact_id] = IX.byContact[x.contact_id] || []).push(x); });
   Object.keys(IX.byContact).forEach(function (k) { IX.byContact[k].sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.created_at < b.created_at ? 1 : -1); }); });
@@ -231,9 +247,9 @@ function go(hash) { if (location.hash === '#' + hash) render(); else location.ha
 function parseHash() {
   var h = location.hash.replace(/^#/, '') || 'actielijst', p = h.split('/');
   route = { view: p[0], id: p[1] ? decodeURIComponent(p[1]) : null, extra: p[2] ? decodeURIComponent(p[2]) : null };
-  if (['actielijst', 'contacten', 'partijen', 'pipeline', 'instellingen', 'contact', 'partij'].indexOf(route.view) < 0) route.view = 'actielijst';
+  if (['actielijst', 'contacten', 'partijen', 'pipeline', 'pelijst', 'pe', 'instellingen', 'contact', 'partij'].indexOf(route.view) < 0) route.view = 'actielijst';
 }
-function navKey() { return route.view === 'contact' ? 'contacten' : route.view === 'partij' ? (lastList === 'pipeline' ? 'pipeline' : 'partijen') : route.view; }
+function navKey() { return route.view === 'contact' ? 'contacten' : route.view === 'pe' ? 'pelijst' : route.view === 'partij' ? (lastList === 'pipeline' ? 'pipeline' : 'partijen') : route.view; }
 var lastList = 'partijen';
 function render() {
   if (Auto.timer) autosaveNow(); /* openstaande wijziging eerst uit het formulier lezen */
@@ -242,12 +258,12 @@ function render() {
   var html;
   try {
     if (['partijen', 'pipeline'].indexOf(route.view) >= 0) lastList = route.view;
-    html = ({ pipeline: vPipeline, actielijst: vActielijst, contacten: vContacten, partijen: vPartijen, instellingen: vInstellingen, contact: vContact, partij: vPartij })[route.view]();
+    html = ({ pelijst: vPeLijst, pe: vPe, pipeline: vPipeline, actielijst: vActielijst, contacten: vContacten, partijen: vPartijen, instellingen: vInstellingen, contact: vContact, partij: vPartij })[route.view]();
   } catch (e) { console.error(e); html = '<section class="container"><div class="actionbar"><h1 class="actionbar__title">Er ging iets mis</h1></div><div class="alert alert--danger">' + icon('alert', 'alert__icon') + '<div class="alert__body">' + esc(e.message) + '</div></div></section>'; }
   main.innerHTML = html;
   var k = navKey();
   $all('[data-nav]').forEach(function (a) {
-    var on = a.dataset.nav === k;
+    var on = a.dataset.nav === k || (a.dataset.nav === 'pipeline-m' && (k === 'pipeline' || k === 'pelijst'));
     a.classList.toggle(a.classList.contains('tabbar__item') ? 'tabbar__item--active' : a.classList.contains('sidenav__subitem-link') ? 'sidenav__subitem-link--active' : 'sidenav__item-link--active', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
@@ -255,7 +271,7 @@ function render() {
   $all('[data-count="actie"]').forEach(function (b) { b.textContent = late; b.classList.toggle('hidden', !late); });
   var pl = pipelineDue();
   $all('[data-count="pipeline"]').forEach(function (b) { b.textContent = pl; b.classList.toggle('hidden', !pl); });
-  document.title = ({ pipeline: 'Sales pipeline', actielijst: 'Actielijst', contacten: 'Contacten', partijen: 'Partijen', instellingen: 'Instellingen', contact: 'Contact', partij: 'Partij' })[route.view] + ' · CRM';
+  document.title = ({ pelijst: 'PE-lijst', pe: 'PE-lijst', pipeline: 'Sales pipeline', actielijst: 'Actielijst', contacten: 'Contacten', partijen: 'Partijen', instellingen: 'Instellingen', contact: 'Contact', partij: 'Partij' })[route.view] + ' · CRM';
   var focusEl = $('[data-autofocus]', main); if (focusEl) focusEl.focus();
 }
 
@@ -461,6 +477,7 @@ function vPartijen() {
     status: function (p) { return inPipeline(p) ? STAGE[p.pipeline_stage].i : null; },
     focus: function (p) { var f = sortedFocus(p); return f.length ? FOCUS.indexOf(f[0]) : null; },
     markten: function (p) { return arr(p.markets).slice().sort(cmpName)[0] || ''; },
+    aum: function (p) { return p.aum_mln == null ? null : +p.aum_mln; },
     wie: function (p) { var n = (IX.byParty[p.id] || []).length; return n || null; },
     last: function (p) { var d = lastOfParty(p); return d ? d.getTime() : null; }
   }, function (a, b) { return cmpName(a.name, b.name); });
@@ -470,13 +487,13 @@ function vPartijen() {
     '<select class="select" data-filter="pstage" aria-label="Status"><option value="">Alle statussen</option>' + STAGES.map(function (st) { return '<option value="' + st.key + '"' + (st.key === F.pstage ? ' selected' : '') + '>' + esc(st.title) + '</option>'; }).join('') + '<option value="geen"' + (F.pstage === 'geen' ? ' selected' : '') + '>Niet in de pipeline</option></select>' +
     '<select class="select" data-filter="pknown" aria-label="Wie ken ik"><option value="">Met en zonder contacten</option><option value="ja"' + (F.pknown === 'ja' ? ' selected' : '') + '>Met contacten</option><option value="nee"' + (F.pknown === 'nee' ? ' selected' : '') + '>Nog niemand</option></select>' +
     clearFilters(['pfocus', 'pmarket', 'pstage', 'pknown']) +
-    sortSelect('partijen', [['partij', 'naam'], ['type', 'type'], ['status', 'status'], ['wie', 'aantal contacten'], ['last', 'laatst gesproken']]) +
+    sortSelect('partijen', [['partij', 'naam'], ['type', 'type'], ['status', 'status'], ['aum', 'AuM'], ['wie', 'aantal contacten'], ['last', 'laatst gesproken']]) +
     '<span class="filterbar__count">' + plural(list.length, 'partij', 'partijen') + '</span></div>';
-  var body = list.length ? '<div class="table-container"><table class="table table--sortable"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-status hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr>' + sortTh('partijen', 'partij', 'Partij') + sortTh('partijen', 'type', 'Type', 'hide-m') + sortTh('partijen', 'status', 'Status', 'hide-m') + sortTh('partijen', 'focus', 'Focus', 'hide-m') + sortTh('partijen', 'markten', 'Markten', 'hide-m') + sortTh('partijen', 'wie', 'Wie ken ik') + sortTh('partijen', 'last', 'Laatst gesproken', 'hide-m') + '</tr></thead><tbody>' +
+  var body = list.length ? '<div class="table-container"><table class="table table--sortable"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-status hide-m"><col class="c-focus hide-m"><col class="hide-m">' + (S.needsAum ? '' : '<col class="c-aum hide-m">') + '<col><col class="c-date hide-m"></colgroup><thead><tr>' + sortTh('partijen', 'partij', 'Partij') + sortTh('partijen', 'type', 'Type', 'hide-m') + sortTh('partijen', 'status', 'Status', 'hide-m') + sortTh('partijen', 'focus', 'Focus', 'hide-m') + sortTh('partijen', 'markten', 'Markten', 'hide-m') + (S.needsAum ? '' : sortTh('partijen', 'aum', 'AuM', 'hide-m num')) + sortTh('partijen', 'wie', 'Wie ken ik') + sortTh('partijen', 'last', 'Laatst gesproken', 'hide-m') + '</tr></thead><tbody>' +
     list.map(function (p) {
       var cs = (IX.byParty[p.id] || []).slice().sort(function (a, b) { return cmpName(fullName(a), fullName(b)); }), t = typeOfParty(p);
       var last = cs.map(lastContact).filter(Boolean).sort(function (a, b) { return b - a; })[0];
-      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td title="' + esc([p.name, p.city].filter(Boolean).join(', ')) + '">' + partyCell(p, 'only-m-inline') + '</td><td class="hide-m">' + (t ? '<span class="type-cell">' + typeDot(t) + esc(t.name) + '</span>' : '') + '</td><td class="hide-m">' + (inPipeline(p) ? stageLabel(p) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + esc(focusText(p)) + '</td><td class="hide-m" title="' + esc(arr(p.markets).join(', ')) + '">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</td>' +
+      return '<tr class="table__row--link" data-href="#partij/' + esc(p.id) + '"><td title="' + esc([p.name, p.city].filter(Boolean).join(', ')) + '">' + partyCell(p, 'only-m-inline') + '</td><td class="hide-m">' + (t ? '<span class="type-cell">' + typeDot(t) + esc(t.name) + '</span>' : '') + '</td><td class="hide-m">' + (inPipeline(p) ? stageLabel(p) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + esc(focusText(p)) + '</td><td class="hide-m" title="' + esc(arr(p.markets).join(', ')) + '">' + arr(p.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') + '</td>' + (S.needsAum ? '' : '<td class="hide-m num" title="' + esc(p.aum_note || '') + '">' + (p.aum_mln != null ? esc(aumFmt(p.aum_mln)) : '<span class="muted">—</span>') + '</td>') +
         '<td title="' + esc(cs.map(fullName).join(', ')) + '">' + (cs.length ? esc(cs.map(fullName).join(', ')) : '<span class="muted">Nog niemand</span>') + '</td><td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td></tr>';
     }).join('') + '</tbody></table></div>'
     : '<div class="base-container">' + emptyState(S.parties.length ? 'Geen partijen gevonden' : 'Nog geen partijen', S.parties.length ? 'Kies een ander type of pas de filters of zoekterm aan.' : 'Voeg een partij toe, of maak er een aan vanuit een contact.', '<button class="btn btn--success" type="button" data-href="#partij/nieuw' + (ft ? '/' + esc(ft) : '') + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Partij toevoegen</span></button>') + '</div>';
@@ -549,7 +566,7 @@ function vPipeline() {
   }).join('');
   var total = list.filter(function (p) { return !STAGE[p.pipeline_stage].closed; }).length;
   return '<section class="container container--wide">' + actionbar('Sales pipeline', '<button class="btn btn--success" type="button" data-act="new-lead">' + icon('plus', 'icon--14') + '<span class="btn__text">Nieuwe partij</span></button>') +
-    (S.needsMigration ? migrationAlert() : '') +
+    (S.needsMigration ? migrationAlert() : '') + pipelineTabs('pipeline') +
     '<div class="filterbar">' + searchField('q-pl', 'Zoek in de pipeline') + '<span class="muted">' + plural(total, 'lopende partij', 'lopende partijen') + '</span>' +
     '<label class="checkbox filterbar__count"><input type="checkbox" data-act-change="show-closed"' + (S.showClosed ? ' checked' : '') + '>Gewonnen en afgevallen tonen' + (closedN ? ' (' + closedN + ')' : '') + '</label></div>' +
     '<div class="pboard">' + cols + '</div>' +
@@ -599,6 +616,152 @@ async function actNewLead() {
       S.contacts.push(c);
     }
     index(); render(); toast(p.name + ' staat in de pipeline.');
+  } catch (e) { fail(e); }
+}
+
+/* ---------- PE-LIJST: partijen die nog niet in het CRM staan ---------- */
+function parseAum(v) { if (v == null || v === '') return null; var n = parseFloat(String(v).replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return isFinite(n) && n >= 0 ? n : null; }
+function aumFmt(v) {
+  if (v == null || v === '') return ''; v = +v;
+  if (v >= 1000) return '€ ' + (v / 1000).toLocaleString('nl-NL', { maximumFractionDigits: v >= 10000 ? 0 : 1 }) + ' mld';
+  return '€ ' + v.toLocaleString('nl-NL', { maximumFractionDigits: v < 10 ? 1 : 0 }) + ' mln';
+}
+function pipelineTabs(active) {
+  var n = S.prospects.length;
+  return '<div class="tab-group mb16" role="tablist"><a class="tab' + (active === 'pipeline' ? ' tab--active' : '') + '" role="tab" href="#pipeline">Pipeline</a>' +
+    '<a class="tab' + (active === 'pelijst' ? ' tab--active' : '') + '" role="tab" href="#pelijst">PE-lijst Nederland' + (n ? '<span class="badge" style="margin-left:6px">' + n + '</span>' : '') + '</a></div>';
+}
+function people(x) { return arr(x.people).filter(function (h) { return h && (h.last_name || h.first_name); }); }
+function personName(h) { return [h.first_name, h.last_name].filter(Boolean).join(' '); }
+function prospectParty(x) { return (x.party_id && IX.party[x.party_id]) || IX.partyName[norm(x.name)] || null; }
+function personContact(h) { return (h.email && IX.mail[norm(h.email).trim()]) || IX.person[norm(personName(h))] || null; }
+function prospectsAlert() {
+  return '<div class="alert alert--warning mb16">' + icon('alert', 'alert__icon') + '<div class="alert__body">De database mist nog de tabel voor de PE-lijst.<div class="muted" style="font-weight:400;margin-top:4px">Voer in Supabase (SQL Editor) het bestand crm-migratie-2-pe-lijst.sql uit en ververs deze pagina.</div></div></div>';
+}
+function prospectMarkets() { var m = {}; S.prospects.forEach(function (x) { arr(x.markets).forEach(function (k) { m[norm(k)] = m[norm(k)] || k; }); }); return Object.keys(m).map(function (k) { return m[k]; }).sort(cmpName); }
+function matchQProspect(x) {
+  if (!S.q) return true; var q = norm(S.q);
+  return [x.name, x.city, x.focus_note].concat(arr(x.markets)).some(function (v) { return norm(v).indexOf(q) >= 0; }) || people(x).some(function (h) { return norm(personName(h)).indexOf(q) >= 0; });
+}
+function prospectStatus(x) {
+  var p = prospectParty(x);
+  if (!p) return '';
+  return inPipeline(p) ? stageLabel(p) : '<span class="stage-label stage-label--incrm">In CRM</span>';
+}
+function vPeLijst() {
+  var F = S.filters, markets = prospectMarkets();
+  if (F.xmarket && !markets.some(function (m) { return norm(m) === norm(F.xmarket); })) F.xmarket = '';
+  var list = S.prospects.filter(function (x) {
+    return matchQProspect(x) && (!F.xfocus || arr(x.focus).indexOf(F.xfocus) >= 0) && (!F.xmarket || arr(x.markets).some(function (m) { return norm(m) === norm(F.xmarket); })) &&
+      (!F.xmail || people(x).some(function (h) { return h.email; })) && (!F.xstatus || (F.xstatus === 'crm') === !!prospectParty(x));
+  });
+  list = sortList(list, 'pelijst', {
+    naam: function (x) { return x.name; },
+    focus: function (x) { var f = sortedFocus(x); return f.length ? FOCUS.indexOf(f[0]) : null; },
+    markten: function (x) { return arr(x.markets).slice().sort(cmpName)[0] || ''; },
+    aum: function (x) { return x.aum_mln == null ? null : +x.aum_mln; },
+    partners: function (x) { return people(x).length || null; }
+  }, function (a, b) { return cmpName(a.name, b.name); });
+  var inCrm = S.prospects.filter(function (x) { return prospectParty(x); }).length;
+  var filters = '<div class="filterbar">' + searchField('q-x', 'Zoek een PE of partner') +
+    '<select class="select" data-filter="xfocus" aria-label="Focus"><option value="">Alle focus</option>' + FOCUS.map(function (f) { return '<option' + (f === F.xfocus ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join('') + '</select>' +
+    '<select class="select" data-filter="xmarket" aria-label="Markt"><option value="">Alle markten</option>' + markets.map(function (m) { return '<option' + (norm(m) === norm(F.xmarket) ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select>' +
+    '<select class="select" data-filter="xstatus" aria-label="Status"><option value="">Wel en niet in CRM</option><option value="nieuw"' + (F.xstatus === 'nieuw' ? ' selected' : '') + '>Nog niet in CRM</option><option value="crm"' + (F.xstatus === 'crm' ? ' selected' : '') + '>Al in CRM</option></select>' +
+    filterToggle('xmail', 'Met e-mailadres') + clearFilters(['xfocus', 'xmarket', 'xstatus', 'xmail']) +
+    sortSelect('pelijst', [['naam', 'naam'], ['aum', 'AuM'], ['partners', 'aantal partners']]) +
+    '<span class="filterbar__count">' + plural(list.length, 'partij', 'partijen') + (inCrm ? ' · ' + inCrm + ' in CRM' : '') + '</span></div>';
+  var body = list.length ? '<div class="table-container"><table class="table table--sortable table--pe"><colgroup><col class="c-party"><col class="c-focus hide-m"><col class="hide-m"><col class="c-aum hide-m"><col class="hide-m"><col class="c-add"></colgroup><thead><tr>' +
+    sortTh('pelijst', 'naam', 'Partij') + sortTh('pelijst', 'focus', 'Focus', 'hide-m') + sortTh('pelijst', 'markten', 'Markten', 'hide-m') + sortTh('pelijst', 'aum', 'AuM', 'num hide-m') + sortTh('pelijst', 'partners', 'Partners', 'hide-m') + '<th></th></tr></thead><tbody>' +
+    list.map(function (x) {
+      var hs = people(x), nm = hs.filter(function (h) { return h.email; }).length, p = prospectParty(x), todo = hs.filter(function (h) { return !personContact(h); }).length;
+      return '<tr class="table__row--link" data-href="#pe/' + esc(x.id) + '"><td title="' + esc([x.name, x.city].filter(Boolean).join(', ')) + '"><div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text"><span class="person__name">' + esc(x.name) + '</span>' + (x.city ? ' <span class="person__sub hide-m">· ' + esc(x.city) + '</span>' : '') + '</span></div></td>' +
+        '<td class="hide-m">' + (arr(x.focus).length ? esc(focusText(x)) : '<span class="muted">Onbekend</span>') + '</td>' +
+        '<td class="hide-m" title="' + esc(arr(x.markets).join(', ')) + '">' + (arr(x.markets).length ? arr(x.markets).map(function (m) { return '<span class="tag tag--small">' + esc(m) + '</span>'; }).join('') : '<span class="muted">Onbekend</span>') + '</td>' +
+        '<td class="num hide-m" title="' + esc(x.aum_note || '') + '">' + (x.aum_mln != null ? esc(aumFmt(x.aum_mln)) : '<span class="muted">Onbekend</span>') + '</td>' +
+        '<td class="hide-m" title="' + esc(hs.map(personName).join(', ')) + '">' + (hs.length ? hs.length + ' <span class="muted">· ' + nm + ' met e-mail</span>' : '<span class="muted">Onbekend</span>') + '</td>' +
+        '<td class="pe-add">' + (p && !todo ? prospectStatus(x) : '<button class="btn compact' + (p ? '' : ' btn--primary') + '" type="button" data-act="prospect-add" data-id="' + esc(x.id) + '" title="Partij en partners toevoegen aan het CRM, onder Te benaderen">' + icon('plus', 'icon--14') + '<span class="btn__text">' + (p ? 'Partners' : 'Toevoegen') + '</span></button>') + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<div class="base-container">' + (S.prospects.length ? emptyState('Geen partijen gevonden', 'Pas de filters of de zoekterm aan.') : emptyState('De PE-lijst is nog leeg', S.needsProspects ? 'Voer eerst de migratie uit; daarna wordt de lijst gevuld.' : 'De lijst wordt gevuld vanuit de ledenlijst van de NVP.')) + '</div>';
+  return '<section class="container container--wide">' + actionbar('Sales pipeline', '') + (S.needsProspects ? prospectsAlert() : '') + pipelineTabs('pelijst') + filters + body +
+    '<p class="form-input__hint mt16">Leden van de NVP (Nederlandse Vereniging van Participatiemaatschappijen). Deze partijen staan nog niet in je CRM. Met Toevoegen komen de partij en de gekozen partners in je CRM, met de partij onder Te benaderen. AuM is het totaal van de actieve fondsen, of het door de partij zelf opgegeven beheerd vermogen. Wat niet in een bron stond, is onbekend gelaten.</p></section>';
+}
+function linkOut(url, label) { return '<a href="' + esc(/^https?:\/\//i.test(url) ? url : 'https://' + url) + '" target="_blank" rel="noopener">' + esc(label || String(url).replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')) + '</a>'; }
+function vPe() {
+  var x = IX.prospect[route.id];
+  if (!x) return '<section class="container">' + actionbar('Niet gevonden') + '<div class="base-container">' + emptyState('Deze partij staat niet (meer) op de PE-lijst', '', '<button class="btn" type="button" data-href="#pelijst">Naar de PE-lijst</button>') + '</div></section>';
+  var hs = people(x), p = prospectParty(x), todo = hs.filter(function (h) { return !personContact(h); }).length;
+  var head = '<div class="crumbbar"><a class="crumb" href="#pelijst">' + icon('chevron-left', 'icon--12') + 'PE-lijst</a></div>' +
+    '<div class="base-container phead"><span class="avatar avatar--lg tone-p">' + esc(initials(x.name)) + '</span>' +
+    '<div class="phead__main"><div class="phead__title"><h1>' + esc(x.name) + '</h1>' + (x.member_of ? '<span class="type-chip tone-p">' + esc(x.member_of) + '-lid</span>' : '') + prospectStatus(x) + '</div>' +
+    '<div class="phead__meta">' + [x.city ? esc(x.city) : '', x.website ? linkOut(x.website) : '', x.aum_mln != null ? 'AuM ' + esc(aumFmt(x.aum_mln)) : '', plural(hs.length, 'partner', 'partners')].filter(Boolean).map(function (v) { return '<span>' + v + '</span>'; }).join('') + '</div>' +
+    '<div class="phead__row"><span class="phead__lbl">Focus</span>' + FOCUS.map(function (f) { return '<span class="fchip' + (arr(x.focus).indexOf(f) >= 0 ? ' fchip--on' : '') + '">' + esc(f) + '</span>'; }).join('') + (arr(x.focus).length ? '' : '<span class="muted">Onbekend</span>') + '</div>' +
+    '<div class="phead__row"><span class="phead__lbl">Markten</span>' + (arr(x.markets).length ? arr(x.markets).map(function (m) { return '<span class="tag">' + esc(m) + '</span>'; }).join('') : '<span class="muted">Onbekend</span>') + '</div>' +
+    '</div><div class="phead__actions">' + (p ? '<button class="btn" type="button" data-href="#partij/' + esc(p.id) + '">' + icon('building', 'icon--14') + '<span class="btn__text">Open in CRM</span></button>' : '') +
+    (!p || todo ? '<button class="btn btn--success" type="button" data-act="prospect-add" data-id="' + esc(x.id) + '">' + icon('plus', 'icon--14') + '<span class="btn__text">' + (p ? 'Partners toevoegen' : 'Toevoegen aan CRM') + '</span></button>' : '') + '</div></div>';
+  var plist = hs.length ? '<div class="pe-people">' + hs.map(function (h, i) {
+    var c = personContact(h);
+    return '<div class="pe-person"><span class="avatar tone-p">' + esc(initials(personName(h))) + '</span><div class="pe-person__main"><div class="pe-person__name">' + esc(personName(h)) + (h.role ? ' <span class="person__sub">· ' + esc(h.role) + '</span>' : '') + '</div>' +
+      '<div class="pe-person__sub">' + (h.email ? '<a href="mailto:' + esc(h.email) + '">' + esc(h.email) + '</a>' : '<span class="muted">E-mail onbekend</span>') + (h.linkedin ? ' · ' + linkOut(h.linkedin, 'LinkedIn') : '') + (h.source ? ' · ' + linkOut(h.source, 'bron') : '') + '</div></div>' +
+      '<div class="pe-person__act">' + (c ? '<a class="stage-label stage-label--incrm" href="#contact/' + esc(c.id) + '">In CRM</a>' : '<button class="btn compact" type="button" data-act="prospect-add" data-id="' + esc(x.id) + '" data-i="' + i + '" title="Deze persoon en de partij toevoegen aan het CRM">' + icon('plus', 'icon--14') + '<span class="btn__text">Toevoegen</span></button>') + '</div></div>';
+  }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Geen partners gevonden in de bronnen.</p>';
+  var src = arr(x.sources).filter(Boolean);
+  var main = '<div><div class="base-container side-block" style="padding-bottom:4px"><div class="side-block__title">Partners' + (hs.length ? '<span class="muted" style="font-weight:400;font-size:12px">' + hs.filter(function (h) { return h.email; }).length + ' van ' + hs.length + ' met e-mailadres</span>' : '') + '</div>' + plist + '</div></div>';
+  var side = '<div class="detail__side"><div class="base-container side-block"><div class="side-block__title">Focus</div>' +
+    '<p' + (x.focus_note ? '' : ' class="muted"') + '>' + esc(x.focus_note || 'Geen investeringscriteria gevonden.') + '</p></div>' +
+    '<div class="base-container side-block"><div class="side-block__title">AuM<span>' + (x.aum_mln != null ? esc(aumFmt(x.aum_mln)) : '<span class="muted" style="font-weight:400">Onbekend</span>') + '</span></div>' +
+    '<p' + (x.aum_note ? '' : ' class="muted"') + '>' + esc(x.aum_note || 'Geen fondsomvang of beheerd vermogen gevonden.') + '</p></div>' +
+    (x.remarks ? '<div class="base-container side-block"><div class="side-block__title">Opmerkingen</div><p>' + esc(x.remarks) + '</p></div>' : '') +
+    '<div class="base-container side-block"><div class="side-block__title">Bronnen' + (x.checked_at ? '<span class="muted" style="font-weight:400;font-size:12px">geraadpleegd ' + esc(fmtDate(x.checked_at, true)) + '</span>' : '') + '</div>' +
+    (src.length ? '<ul class="pe-src">' + src.map(function (u) { return '<li>' + linkOut(u) + '</li>'; }).join('') + '</ul>' : '<p class="muted">Geen bronnen vastgelegd.</p>') + '</div></div>';
+  return '<section class="container">' + head + '<div class="detail detail--pe">' + main + side + '</div></section>';
+}
+/* Zet een partij van de PE-lijst in het CRM (type Private equity, fase Te benaderen) met de gekozen partners als contact */
+async function actProspectAdd(id, one) {
+  var x = IX.prospect[id]; if (!x) return;
+  if (S.needsMigration) { toast('Voer eerst de migratie voor de pipeline uit.', 'danger'); return; }
+  var hs = people(x), pick;
+  if (one !== null) pick = [hs[one]].filter(Boolean);
+  else {
+    var open = hs.filter(function (h) { return !personContact(h); });
+    if (open.length) {
+      var body = '<p class="muted mb16">' + esc(x.name) + (prospectParty(x) ? ' staat al in je CRM.' : ' komt als partij in je CRM onder Te benaderen.') + ' Kies wie je als contact wilt toevoegen.</p><div class="pe-pick">' + hs.map(function (h, i) {
+        var c = personContact(h);
+        return '<label class="checkbox pe-pick__row"><input type="checkbox" data-pick="' + i + '"' + (c ? ' disabled' : ' checked') + '><span><strong>' + esc(personName(h)) + '</strong>' + (h.role ? ' <span class="muted">· ' + esc(h.role) + '</span>' : '') + '<br><span class="muted">' + esc(c ? 'Staat al in je CRM' : (h.email || 'E-mail onbekend')) + '</span></span></label>';
+      }).join('') + '</div>';
+      var r = await openPopup({ title: 'Toevoegen aan CRM', body: body, buttons: [{ label: 'Toevoegen', cls: 'btn--primary' }, { label: 'Annuleren', value: false }],
+        collect: function () { return $all('[data-pick]:checked', $('#popup')).map(function (el) { return +el.dataset.pick; }); } });
+      if (!r || !r.data) return;
+      pick = r.data.map(function (i) { return hs[i]; });
+    } else pick = [];
+  }
+  try {
+    var p = prospectParty(x), peType = S.types.find(function (t) { return norm(t.name) === 'private equity'; }), isNewParty = !p;
+    var note = [x.focus_note ? 'Focus: ' + x.focus_note : '', x.member_of ? 'Bron: PE-lijst (' + x.member_of + '-leden)' + (x.checked_at ? ', ' + fmtDate(x.checked_at, true) : '') + '.' : ''].filter(Boolean).join('\n');
+    if (!p) {
+      var row = { name: x.name, type_id: peType ? peType.id : null, city: x.city || null, website: x.website || null, notes: note || null, focus: arr(x.focus).filter(function (f) { return FOCUS.indexOf(f) >= 0; }), markets: arr(x.markets),
+        pipeline_stage: 'te_benaderen', pipeline_since: todayIso() };
+      if (!S.needsAum) { row.aum_mln = x.aum_mln == null ? null : +x.aum_mln; row.aum_note = x.aum_note || null; }
+      p = await Store.insert('parties', row); S.parties.push(p);
+    } else {
+      var patch = {};
+      if (!inPipeline(p)) { patch.pipeline_stage = 'te_benaderen'; if (!p.pipeline_since) patch.pipeline_since = todayIso(); }
+      if (!p.type_id && peType) patch.type_id = peType.id;
+      if (!p.city && x.city) patch.city = x.city;
+      if (!p.website && x.website) patch.website = x.website;
+      if (!p.notes && note) patch.notes = note;
+      if (!arr(p.focus).length && arr(x.focus).length) patch.focus = arr(x.focus).filter(function (f) { return FOCUS.indexOf(f) >= 0; });
+      if (!arr(p.markets).length && arr(x.markets).length) patch.markets = arr(x.markets);
+      if (!S.needsAum && p.aum_mln == null && x.aum_mln != null) { patch.aum_mln = +x.aum_mln; patch.aum_note = x.aum_note || null; }
+      if (Object.keys(patch).length) Object.assign(p, await Store.update('parties', p.id, patch));
+    }
+    index();
+    var rows = pick.filter(function (h) { return !personContact(h); }).map(function (h) {
+      return { first_name: h.first_name || null, last_name: h.last_name || h.first_name, role: h.role || null, party_id: p.id, email: h.email || null, linkedin: h.linkedin || null, recurring: false, interval_months: +S.settings.default_interval_months || 3 };
+    });
+    (await Store.insertMany('contacts', rows)).forEach(function (c) { S.contacts.push(c); });
+    if (x.party_id !== p.id && !S.needsProspects) { try { Object.assign(x, await Store.update('prospects', x.id, { party_id: p.id })); } catch (e) { console.warn(e); x.party_id = p.id; } }
+    index(); render();
+    toast(isNewParty ? x.name + (rows.length ? ' en ' + plural(rows.length, 'contact', 'contacten') : '') + ' toegevoegd, onder Te benaderen.' : (rows.length ? plural(rows.length, 'contact', 'contacten') + ' toegevoegd bij ' + p.name + '.' : p.name + ' stond al in je CRM.'));
   } catch (e) { fail(e); }
 }
 
@@ -664,6 +827,8 @@ function vPartij() {
     fieldRow('Type', 'type_id', '<select class="select" id="type_id" name="type_id">' + typeOptions(p.type_id, 'Geen type') + '</select>') +
     fieldRow('Plaats', 'city', textInput('city', p.city, { cls: 'text-field--wide' })) +
     (S.needsMigration ? '' : fieldRow('Focus', 'focus', focusChips('focus', p.focus)) + fieldRow('Markten', 'markets', marketTags('markets', p.markets), true)) +
+    (S.needsAum ? '' : fieldRow('AuM', 'aum_mln', '<span class="text-field aum-field"><span class="aum-field__pre">€</span><input class="text-field__input" id="aum_mln" name="aum_mln" type="text" inputmode="decimal" value="' + esc(p.aum_mln == null ? '' : String(p.aum_mln).replace('.', ',')) + '" placeholder="bijv. 450"><span class="aum-field__post">mln</span></span><span class="form-input__hint" style="margin:0 0 0 10px">Totaal van de actieve fondsen</span>') +
+      fieldRow('Toelichting AuM', 'aum_note', textInput('aum_note', p.aum_note, { cls: 'text-field--full', ph: 'Opbouw en bron, bijv. Fonds IV € 350 mln + Fonds V € 500 mln' }))) +
     fieldRow('Website', 'website', textInput('website', p.website, { type: 'url', cls: 'text-field--full', ph: 'https://' })) +
     fieldRow('Notitie', 'notes', '<textarea class="textarea" id="notes" name="notes">' + esc(p.notes || '') + '</textarea>', true) +
     '</fieldset>' + (S.needsMigration ? '' : '<fieldset class="fieldset mt16" style="margin-bottom:0"><div class="fieldset__header">' + icon('chart') + 'Sales pipeline</div>' +
@@ -692,7 +857,7 @@ function partyHead(p, actions) {
   return '<div class="crumbbar"><a class="crumb" href="#' + back[0] + '">' + icon('chevron-left', 'icon--12') + esc(back[1]) + '</a>' + saveState() + '</div>' +
     '<div class="base-container phead" id="dhead"><span class="avatar avatar--lg tone-' + typeTone(t) + '">' + esc(initials(p.name)) + '</span>' +
     '<div class="phead__main"><div class="phead__title"><h1>' + esc(p.name) + '</h1>' + (t ? '<span class="type-chip tone-' + typeTone(t) + '">' + typeDot(t) + esc(t.name) + '</span>' : '') + stageLabel(p) + '</div>' +
-    '<div class="phead__meta">' + [p.city ? esc(p.city) : '', site, plural(n, 'contact', 'contacten')].filter(Boolean).map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    '<div class="phead__meta">' + [p.city ? esc(p.city) : '', site, p.aum_mln != null ? '<span title="' + esc(p.aum_note || 'Assets under management: totaal van de actieve fondsen') + '">AuM ' + esc(aumFmt(p.aum_mln)) + '</span>' : '', plural(n, 'contact', 'contacten')].filter(Boolean).map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
     (S.needsMigration ? '' : '<div class="phead__row"><span class="phead__lbl">Focus</span>' + FOCUS.map(function (x) { return '<span class="fchip' + (arr(p.focus).indexOf(x) >= 0 ? ' fchip--on' : '') + '">' + esc(x) + '</span>'; }).join('') + '</div>' +
     '<div class="phead__row"><span class="phead__lbl">Markten</span>' + (arr(p.markets).length ? arr(p.markets).map(function (m) { return '<span class="tag">' + esc(m) + '</span>'; }).join('') : '<span class="muted">Nog geen markten. Voeg ze hieronder toe.</span>') + '</div>') +
     '</div><div class="phead__actions">' + actions + '<button class="btn btn--success" type="button" data-href="#contact/nieuw/' + esc(p.id) + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact</span></button></div></div>';
@@ -785,6 +950,7 @@ function partyJob(id) {
   var v = readForm($('#f-party'));
   if (!v.name) { $('#name').parentNode.classList.add('text-field--error'); return { error: 'Niet opgeslagen: vul een naam in' }; }
   var row = { name: v.name, type_id: v.type_id || null, city: v.city || null, website: v.website || null, notes: v.notes || null };
+  if (!S.needsAum) { row.aum_mln = parseAum(v.aum_mln); row.aum_note = v.aum_note || null; }
   if (!S.needsMigration) {
     row.focus = readChips('focus'); row.markets = readTags('markets');
     row.pipeline_stage = v.pipeline_stage || null; row.pipeline_next_step = v.pipeline_next_step || null; row.pipeline_next_date = v.pipeline_next_date || null;
@@ -1010,7 +1176,7 @@ async function actTypeRename(id, name) {
   try { Object.assign(t, await Store.update('party_types', id, { name: name })); index(); toast('Opgeslagen.'); } catch (e) { fail(e); }
 }
 function actExport() {
-  var data = { exported_at: new Date().toISOString(), party_types: S.types, parties: S.parties, contacts: S.contacts, interactions: S.interactions, settings: S.settings };
+  var data = { exported_at: new Date().toISOString(), party_types: S.types, parties: S.parties, contacts: S.contacts, interactions: S.interactions, prospects: S.prospects, settings: S.settings };
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   var d = new Date(); a.download = String(d.getFullYear()).slice(2) + pad(d.getMonth() + 1) + pad(d.getDate()) + ' CRM export.json';
@@ -1033,6 +1199,7 @@ async function actImport(file) {
       if (!p.name || partyByName[norm(p.name)] || newParties.some(function (x) { return norm(x.name) === norm(p.name); })) return;
       var np = { name: p.name, type_id: p.type && typeByName[norm(p.type)] ? typeByName[norm(p.type)].id : null, city: p.city || null, website: p.website || null, notes: p.notes || null };
       if (!S.needsMigration) { np.focus = arr(p.focus).filter(function (f) { return FOCUS.indexOf(f) >= 0; }); np.markets = arr(p.markets); }
+      if (!S.needsAum && p.aum_mln != null) { np.aum_mln = parseAum(p.aum_mln); np.aum_note = p.aum_note || null; }
       newParties.push(np);
     });
     (await Store.insertMany('parties', newParties)).forEach(function (p) { S.parties.push(p); partyByName[norm(p.name)] = p; });
@@ -1090,6 +1257,7 @@ function bindEvents() {
         case 'export': actExport(); break;
         case 'stage': actStage(id, a.dataset.stage); break;
         case 'new-lead': actNewLead(); break;
+        case 'prospect-add': actProspectAdd(id, a.dataset.i === undefined ? null : +a.dataset.i); break;
         case 'import': $('#import-file').click(); break;
         case 'logout': Store.signOut().then(function () { location.hash = ''; location.reload(); }); break;
       }
@@ -1138,7 +1306,7 @@ function bindEvents() {
     if (t.id === 'zoek' || t.hasAttribute('data-q')) {
       S.q = t.value;
       $all('#zoek,[data-q]').forEach(function (o) { if (o !== t) o.value = t.value; });
-      if (['contacten', 'partijen', 'actielijst', 'pipeline'].indexOf(route.view) < 0) { go('contacten'); }
+      if (['contacten', 'partijen', 'actielijst', 'pipeline', 'pelijst'].indexOf(route.view) < 0) { go('contacten'); }
       else { var pos = t.selectionStart; var isTop = t.id === 'zoek'; render(); var el = isTop ? $('#zoek') : $('#' + t.id); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (x) {} } }
     }
   });
