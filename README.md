@@ -19,6 +19,6 @@ Vormgeving: Moneybird-template (`04_Resources/methods/huisstijl-moneybird.md` in
 
 ## Bouwen
 
-De bronbestanden staan in `src/`. `python3 build.py` voegt ze samen tot `index.html` (Supabase JS 2.119.0 zit erin, geen CDN). `node mkicons.js .` maakt de PNG-iconen opnieuw.
+De bronbestanden staan in `src/`. `python3 build.py` voegt ze samen tot `index.html` (Supabase JS 2.119.0 zit erin, geen CDN). Het logo staat in `src/logo.svg` (en als symbool `i-logo` in `src/icons.svg` voor de bovenbalk en het inlogscherm); `build.py` schrijft het naar `icon.svg`, daarna maakt `node mkicons.js .` de PNG-iconen opnieuw.
 
 Gebruik op de laptop: Edge-snelkoppeling met `--app=<GitHub Pages-URL>`. Op de telefoon: openen in de browser en "Zet op beginscherm".
