@@ -471,3 +471,43 @@ body.auth-mode .auth{display:flex}
   .detail__side .base-container + .base-container{margin-top:0}
 }
 @media (max-width:768px){ .detail__side{grid-template-columns:minmax(0,1fr)} .phead{padding:16px} }
+
+/* ---------- PE-lijst en AuM ---------- */
+.table th.num,.table td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.table th.num .th-sort{justify-content:flex-end;width:100%}
+.table col.c-aum{width:104px}
+.table col.c-add{width:150px}
+.table td.pe-add{overflow:visible;text-overflow:clip}
+.table td.pe-add .btn{max-width:none}
+.table td.pe-add .btn__text{overflow:visible}
+.table--pe col.c-party{width:26%}
+.table td.pe-add{text-align:right;white-space:nowrap}
+.table td.pe-add .stage-label{margin-left:0}
+.stage-label--incrm{background:var(--g100);color:var(--g600);text-decoration:none}
+.aum-field{display:inline-flex;align-items:center;width:150px}
+.aum-field .text-field__input{width:100%;text-align:right;padding-left:22px;padding-right:38px}
+.aum-field__pre,.aum-field__post{position:absolute;color:var(--secondary-text);pointer-events:none}
+.aum-field{position:relative}
+.aum-field__pre{left:9px}
+.aum-field__post{right:9px}
+.pe-people{margin:0 -16px}
+.pe-person{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border)}
+.pe-person:first-child{border-top:0}
+.pe-person .avatar{flex-shrink:0}
+.pe-person__main{min-width:0;flex:1}
+.pe-person__name{font-weight:500}
+.pe-person__name .person__sub{font-weight:400}
+.pe-person__sub{color:var(--secondary-text);font-size:12px;overflow-wrap:anywhere}
+.pe-person__act{flex-shrink:0}
+.pe-src{margin:0;padding-left:18px;overflow-wrap:anywhere;font-size:12px}
+.pe-src li{margin-bottom:4px}
+.side-block p{margin:0 0 4px;white-space:pre-line}
+.pe-pick{display:flex;flex-direction:column;gap:10px;max-height:50vh;overflow-y:auto}
+.pe-pick__row{align-items:flex-start;gap:10px;line-height:1.4}
+.pe-pick__row input{margin-top:3px}
+@media (max-width:768px){
+  .table--pe col.c-party{width:auto}
+  .table col.c-aum{width:92px}
+  .table col.c-add{width:136px}
+  .detail--pe .detail__side{order:0}
+}
