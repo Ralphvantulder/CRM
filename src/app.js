@@ -263,15 +263,15 @@ function personCell(c, sub) {
 }
 function partyCell(p, stageCls) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span>' + (stageCls ? '<span class="' + stageCls + '">' + stageLabel(p) + '</span>' : stageLabel(p)) + '</div>'; }
 function spokenBtn(c) { return '<button class="btn btn--primary" type="button" data-act="spoken" data-id="' + esc(c.id) + '" title="Contactmoment vastleggen">' + icon('check', 'icon--14') + '<span class="btn__text">Gesproken</span></button>'; }
-/* Mail opstellen in Outlook op het web (account waarmee je in Outlook bent ingelogd) */
-function outlookUrl(c) {
-  var q = 'to=' + encodeURIComponent(c.email);
-  if (c.first_name) q += '&body=' + encodeURIComponent('Beste ' + c.first_name + ',\n\n');
-  return 'https://outlook.office.com/mail/deeplink/compose?' + q;
+/* Mail opstellen via mailto: opent het standaard mailprogramma (Outlook op de pc) */
+function mailUrl(c) {
+  var url = 'mailto:' + encodeURIComponent(c.email).replace(/%40/g, '@');
+  if (c.first_name) url += '?body=' + encodeURIComponent('Beste ' + c.first_name + ',\r\n\r\n');
+  return url;
 }
 function mailBtn(c, iconOnly) {
   if (!c.email) return '';
-  return '<a class="btn' + (iconOnly ? ' btn--icon-only' : '') + '" href="' + esc(outlookUrl(c)) + '" target="_blank" rel="noopener" title="Mail opstellen in Outlook aan ' + esc(c.email) + '" aria-label="Mail opstellen in Outlook">' + icon('inbox', 'icon--14') + (iconOnly ? '' : '<span class="btn__text">Mail</span>') + '</a>';
+  return '<a class="btn' + (iconOnly ? ' btn--icon-only' : '') + '" href="' + esc(mailUrl(c)) + '" title="Mail opstellen in Outlook aan ' + esc(c.email) + '" aria-label="Mail opstellen in Outlook">' + icon('inbox', 'icon--14') + (iconOnly ? '' : '<span class="btn__text">Mail</span>') + '</a>';
 }
 function snoozeMenu(c) {
   return '<div class="drpdwn"><button class="btn" type="button" aria-haspopup="menu" aria-expanded="false" data-drpdwn title="Uitstellen">' + icon('clock', 'icon--14') + '<span class="btn__text">Uitstellen</span>' + icon('chevron-down', 'btn__icon-right') + '</button>' +
