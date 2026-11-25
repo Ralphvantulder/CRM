@@ -52,7 +52,7 @@
   --topnav-height:64px; --sidenav-width:240px; --sidenav-collapsed:64px;
   --button-height:36px; --button-padding:12px; --input-height:28px;
   --radius-container:12px; --radius:8px; --radius-small:4px; --radius-segment:6px; --radius-pagination:10px;
-  --container-max:1100px; --form-column:816px;
+  --container-max:1280px; --form-column:816px;
 
   /* schaduwen */
   --shadow-container:0 0 0 1px var(--shadow-border), 0 1px 2px 0 rgba(var(--shadow-color-rgb),.05);
@@ -161,7 +161,7 @@ body.sidenav-collapsed .sidenav__footer .icon{transform:rotate(180deg)}
 .main-column{max-width:var(--form-column)} /* formulierkolom: links uitgelijnd in de gecentreerde container, rest blijft leeg */
 .actionbar{height:72px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .actionbar--section{height:68px}
-.actionbar__title{font:600 var(--text-title2)/var(--lh-title2) var(--font);color:var(--primary-title);padding-left:16px}
+.actionbar__title{font:600 var(--text-title2)/var(--lh-title2) var(--font);color:var(--primary-title);padding-left:0;letter-spacing:-.01em}
 .actionbar__actions{display:flex;align-items:center;gap:8px}
 .view{display:none}.view--active{display:block}
 

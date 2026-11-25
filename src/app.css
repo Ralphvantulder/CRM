@@ -160,7 +160,7 @@ body.auth-mode .auth{display:flex}
 .tab{white-space:nowrap;flex-shrink:0}
 
 /* pipelinebord */
-.container--wide{max-width:1440px}
+.container--wide{max-width:var(--container-max)}
 .pboard{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(220px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px;align-items:start}
 .pcol{background:var(--n100);border-radius:var(--radius-container);padding:8px;min-height:160px;transition:background .1s}
 .pcol--over{background:var(--b100);box-shadow:inset 0 0 0 2px var(--b300)}
@@ -400,3 +400,74 @@ body.auth-mode .auth{display:flex}
 .table--sortable col.c-date{width:156px}
 .filterbar .select{flex:1 1 150px;max-width:210px;width:auto;min-width:0}
 @media (max-width:768px){ .table col.c-name{width:auto} .filter-toggle{width:100%;justify-content:center} }
+
+/* ============================================================
+   ONTWERPRONDE 2: uitlijning, detailpagina's, automatisch opslaan
+   ============================================================ */
+/* alle pagina's even breed en op dezelfde linkerlijn */
+.container{padding:0 24px}
+@media (max-width:768px){ .container{padding:0 16px} }
+
+/* broodkruimel + opslagstatus op één regel */
+.crumbbar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px;margin:20px 0 12px}
+.crumbbar .crumb{margin:0}
+.savestate{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--secondary-text);white-space:nowrap;transition:color .2s}
+.savestate .icon{flex:none}
+.savestate--saved .icon{color:var(--g500,#16a34a)}
+.savestate--pending,.savestate--saving{color:var(--secondary-text)}
+.savestate--saving .icon{animation:spin 1s linear infinite}
+.savestate--error{color:var(--r600,#c81e1e);font-weight:500}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:768px){ .crumbbar{margin:12px 0 10px} .savestate span{max-width:52vw;overflow:hidden;text-overflow:ellipsis} }
+
+/* kop van contact en partij */
+.phead__sub{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font-size:14px;color:var(--primary-text)}
+.phead__sub a{display:inline-flex;align-items:center;gap:6px;color:inherit;text-decoration:none;font-weight:500}
+.phead__sub a:hover{color:var(--link)}
+.phead__dot{color:var(--n400)}
+.phead__meta a{color:var(--link);text-decoration:none}
+.phead__meta a:hover{text-decoration:underline}
+.phead__actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.phead .recurring-mark{height:24px;padding:0 8px;border-radius:12px;background:var(--g100);font-size:12px}
+
+/* detail: formulier + zijkolom */
+.detail{grid-template-columns:minmax(0,1fr) 360px;gap:20px}
+.detail--single{grid-template-columns:minmax(0,816px)}
+.detail__side .base-container + .base-container{margin-top:20px}
+.side-block{padding:14px 16px;overflow:hidden}
+.side-block__title{font-weight:600;min-height:32px}
+.form-actions-inline{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:14px}
+.base-container--padding{padding:16px 20px}
+.fieldset__header{font-weight:600}
+/* bewerken in de tijdlijn alleen bij aanwijzen (pc) */
+@media (hover:hover){ .tline__edit,.feed-entry .feed-entry__side .btn{opacity:0;transition:opacity .12s} .tline__item:hover .tline__edit,.feed-entry:hover .feed-entry__side .btn,.tline__edit:focus-visible,.feed-entry__side .btn:focus-visible{opacity:1} }
+
+/* onderbalk bij toevoegen */
+.btn--plain{--btn-border:transparent;box-shadow:none;background:transparent}
+.actionbar-bottom{gap:10px}
+
+/* instellingen: waarden links in de formulierkolom */
+.kv--form{grid-template-columns:170px 1fr;max-width:560px}
+.kv--form dd{text-align:left}
+
+/* tabellen: iets meer lucht en een duidelijke kop */
+.table th{background:var(--n50)}
+.table th:first-child{border-top-left-radius:var(--radius-container)}
+.table th:last-child{border-top-right-radius:var(--radius-container)}
+.table td{height:48px}
+
+/* sorteren op de telefoon (kolomkoppen zijn daar verborgen) */
+.sort-m{display:none}
+@media (max-width:768px){ .sort-m{display:flex;width:100%} .sort-m .select{flex:1 1 auto;max-width:none} }
+
+/* filterbalk: telling netjes rechts, wrapt mee */
+.filterbar{gap:8px 10px}
+.crumbbar + .actionbar{height:auto;padding:0 0 16px}
+@media (max-width:768px){ .table--stack td{height:auto} }
+/* detail: op smallere schermen zijkolom boven het formulier, blokken naast elkaar */
+@media (max-width:1180px){
+  .detail{grid-template-columns:minmax(0,1fr)}
+  .detail__side{order:-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;align-items:start}
+  .detail__side .base-container + .base-container{margin-top:0}
+}
+@media (max-width:768px){ .detail__side{grid-template-columns:minmax(0,1fr)} .phead{padding:16px} }

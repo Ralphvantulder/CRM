@@ -236,6 +236,7 @@ function parseHash() {
 function navKey() { return route.view === 'contact' ? 'contacten' : route.view === 'partij' ? (lastList === 'pipeline' ? 'pipeline' : 'partijen') : route.view; }
 var lastList = 'partijen';
 function render() {
+  if (Auto.timer) autosaveNow(); /* openstaande wijziging eerst uit het formulier lezen */
   parseHash();
   var main = $('#main');
   var html;
@@ -382,6 +383,12 @@ function setSort(view, key) {
   try { localStorage.setItem('crm.sort', JSON.stringify(S.sort)); } catch (e) {}
   render();
 }
+function sortSelect(view, opts) {
+  var st = S.sort[view], cur = st.k + ':' + st.d;
+  return '<label class="sort-m"><select class="select" data-sort-select="' + view + '" aria-label="Sorteren">' + opts.map(function (o) {
+    return [1, -1].map(function (d) { var v = o[0] + ':' + d; return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>Sorteer: ' + esc(o[1]) + (d === 1 ? ' ↑' : ' ↓') + '</option>'; }).join('');
+  }).join('') + '</select></label>';
+}
 function filterToggle(key, label) {
   var on = !!S.filters[key];
   return '<button class="filter-toggle' + (on ? ' filter-toggle--on' : '') + '" type="button" data-filter-toggle="' + key + '" aria-pressed="' + on + '">' + icon(on ? 'check' : 'clock', 'icon--12') + esc(label) + '</button>';
@@ -423,6 +430,7 @@ function vContacten() {
     '<select class="select" data-filter="crole" aria-label="Functie"><option value="">Alle functies</option>' + roles.map(function (r) { return '<option' + (norm(r) === norm(F.crole) ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>' +
     '<select class="select" data-filter="cdue" aria-label="Volgende keer"><option value="">Elke opvolging</option>' + DUE_FILTERS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === F.cdue ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
     filterToggle('crec', 'Alleen herhaaldelijk') + clearFilters(['ctype', 'cparty', 'crole', 'cdue', 'crec']) +
+    sortSelect('contacten', [['naam', 'naam'], ['functie', 'functie'], ['partij', 'partij'], ['last', 'laatst gesproken'], ['due', 'volgende keer']]) +
     '<span class="filterbar__count">' + plural(list.length, 'contact', 'contacten') + '</span></div>';
   var body = list.length ? '<div class="table-container"><table class="table table--stack table--sortable"><colgroup><col class="c-name"><col class="hide-m"><col class="hide-m"><col class="c-type hide-m"><col class="c-date hide-m"><col class="c-rec hide-m"><col class="c-due"></colgroup><thead><tr>' + sortTh('contacten', 'naam', 'Naam') + sortTh('contacten', 'functie', 'Functie', 'hide-m') + sortTh('contacten', 'partij', 'Partij', 'hide-m') + sortTh('contacten', 'type', 'Type', 'hide-m') + sortTh('contacten', 'last', 'Laatst gesproken', 'hide-m') + sortTh('contacten', 'rec', 'Herhaaldelijk', 'hide-m') + sortTh('contacten', 'due', 'Volgende keer') + '</tr></thead><tbody>' +
     list.map(function (c) {
@@ -462,6 +470,7 @@ function vPartijen() {
     '<select class="select" data-filter="pstage" aria-label="Status"><option value="">Alle statussen</option>' + STAGES.map(function (st) { return '<option value="' + st.key + '"' + (st.key === F.pstage ? ' selected' : '') + '>' + esc(st.title) + '</option>'; }).join('') + '<option value="geen"' + (F.pstage === 'geen' ? ' selected' : '') + '>Niet in de pipeline</option></select>' +
     '<select class="select" data-filter="pknown" aria-label="Wie ken ik"><option value="">Met en zonder contacten</option><option value="ja"' + (F.pknown === 'ja' ? ' selected' : '') + '>Met contacten</option><option value="nee"' + (F.pknown === 'nee' ? ' selected' : '') + '>Nog niemand</option></select>' +
     clearFilters(['pfocus', 'pmarket', 'pstage', 'pknown']) +
+    sortSelect('partijen', [['partij', 'naam'], ['type', 'type'], ['status', 'status'], ['wie', 'aantal contacten'], ['last', 'laatst gesproken']]) +
     '<span class="filterbar__count">' + plural(list.length, 'partij', 'partijen') + '</span></div>';
   var body = list.length ? '<div class="table-container"><table class="table table--sortable"><colgroup><col class="c-party"><col class="c-type hide-m"><col class="c-status hide-m"><col class="c-focus hide-m"><col class="hide-m"><col><col class="c-date hide-m"></colgroup><thead><tr>' + sortTh('partijen', 'partij', 'Partij') + sortTh('partijen', 'type', 'Type', 'hide-m') + sortTh('partijen', 'status', 'Status', 'hide-m') + sortTh('partijen', 'focus', 'Focus', 'hide-m') + sortTh('partijen', 'markten', 'Markten', 'hide-m') + sortTh('partijen', 'wie', 'Wie ken ik') + sortTh('partijen', 'last', 'Laatst gesproken', 'hide-m') + '</tr></thead><tbody>' +
     list.map(function (p) {
@@ -498,7 +507,7 @@ function addTag(box) {
   var inp = $('[data-tag-input]', box), v = inp.value.trim(); if (!v) { inp.focus(); return; }
   var exist = allMarkets().find(function (m) { return norm(m) === norm(v); }); if (exist) v = exist;
   if (!$all('[data-tag]', box).some(function (t) { return norm(t.dataset.tag) === norm(v); })) inp.parentNode.insertAdjacentHTML('beforebegin', tagHtml(v));
-  inp.value = ''; inp.focus(); dirty = true;
+  inp.value = ''; inp.focus(); dirty = true; autosaveSoon(300);
 }
 function sortedFocus(p) { return arr(p.focus).slice().sort(function (a, b) { return FOCUS.indexOf(a) - FOCUS.indexOf(b); }); }
 function focusText(p) { return sortedFocus(p).join(', '); }
@@ -639,10 +648,10 @@ function vContact() {
           (x.notes ? '<span class="feed-entry__notes">' + esc(x.notes) + '</span>' : '') + '</div>';
       }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog geen contactmomenten.</p>') + '</div></div>';
   }
-  var actions = isNew ? '' : mailBtn(c) + '<button class="btn" type="button" data-act="delete-contact" data-id="' + esc(c.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
-  return '<section class="container">' + actionbar(isNew ? 'Contact toevoegen' : fullName(c), actions) +
-    '<div class="detail"' + (isNew ? ' style="grid-template-columns:minmax(0,816px)"' : '') + '><div>' + form +
-    '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="save-contact" data-id="' + esc(isNew ? '' : c.id) + '"><span class="btn__text">Opslaan</span></button><button class="btn" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div></div>' + side + '</div></section>';
+  if (isNew) return '<section class="container">' + crumbBack() + actionbar('Contact toevoegen') +
+    '<div class="detail detail--single"><div>' + form + addBar('save-contact', true) + '</div></div></section>';
+  var actions = mailBtn(c) + '<button class="btn" type="button" data-act="delete-contact" data-id="' + esc(c.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
+  return '<section class="container">' + contactHead(c, actions) + '<div class="detail"><div>' + form + '</div>' + side + '</div></section>';
 }
 
 /* ---------- PARTIJ (detail en nieuw) ---------- */
@@ -671,23 +680,120 @@ function vPartij() {
         return '<div class="feed-entry feed-entry--compact feed-entry--link" data-href="#contact/' + esc(c.id) + '"><span class="feed-entry__avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span><span class="feed-entry__title">' + esc(fullName(c)) + '</span><span class="feed-entry__subtitle"><span>' + esc(c.role || '') + '</span></span><span class="feed-entry__side">' + dueLabel(c) + '</span></div>';
       }).join('') + '</div>' : '<p class="muted" style="padding-bottom:12px">Nog niemand vastgelegd.</p>') + '</div>' + timelineBlock(cs) + '</div>';
   }
-  var actions = isNew ? '' : '<button class="btn" type="button" data-act="delete-party" data-id="' + esc(p.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
-  return '<section class="container">' + (isNew ? actionbar('Partij toevoegen') : partyHead(p, actions)) +
-    '<div class="detail"' + (isNew ? ' style="grid-template-columns:minmax(0,816px)"' : '') + '><div>' + form +
-    '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="save-party" data-id="' + esc(isNew ? '' : p.id) + '"><span class="btn__text">Opslaan</span></button><button class="btn" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div></div>' + side + '</div></section>';
+  if (isNew) return '<section class="container">' + crumbBack() + actionbar('Partij toevoegen') +
+    '<div class="detail detail--single"><div>' + form + addBar('save-party', false) + '</div></div></section>';
+  var actions = '<button class="btn" type="button" data-act="delete-party" data-id="' + esc(p.id) + '">' + icon('trash', 'icon--14') + '<span class="btn__text">Verwijderen</span></button>';
+  return '<section class="container">' + partyHead(p, actions) + '<div class="detail"><div>' + form + '</div>' + side + '</div></section>';
 }
 
 function partyHead(p, actions) {
   var t = typeOfParty(p), n = (IX.byParty[p.id] || []).length, back = lastList === 'pipeline' ? ['pipeline', 'Sales pipeline'] : ['partijen', 'Partijen'];
   var site = p.website ? '<a href="' + esc(/^https?:\/\//i.test(p.website) ? p.website : 'https://' + p.website) + '" target="_blank" rel="noopener">' + esc(String(p.website).replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')) + '</a>' : '';
-  return '<a class="crumb" href="#' + back[0] + '">' + icon('chevron-left', 'icon--12') + esc(back[1]) + '</a>' +
-    '<div class="base-container phead"><span class="avatar avatar--lg tone-' + typeTone(t) + '">' + esc(initials(p.name)) + '</span>' +
+  return '<div class="crumbbar"><a class="crumb" href="#' + back[0] + '">' + icon('chevron-left', 'icon--12') + esc(back[1]) + '</a>' + saveState() + '</div>' +
+    '<div class="base-container phead" id="dhead"><span class="avatar avatar--lg tone-' + typeTone(t) + '">' + esc(initials(p.name)) + '</span>' +
     '<div class="phead__main"><div class="phead__title"><h1>' + esc(p.name) + '</h1>' + (t ? '<span class="type-chip tone-' + typeTone(t) + '">' + typeDot(t) + esc(t.name) + '</span>' : '') + stageLabel(p) + '</div>' +
     '<div class="phead__meta">' + [p.city ? esc(p.city) : '', site, plural(n, 'contact', 'contacten')].filter(Boolean).map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
     (S.needsMigration ? '' : '<div class="phead__row"><span class="phead__lbl">Focus</span>' + FOCUS.map(function (x) { return '<span class="fchip' + (arr(p.focus).indexOf(x) >= 0 ? ' fchip--on' : '') + '">' + esc(x) + '</span>'; }).join('') + '</div>' +
     '<div class="phead__row"><span class="phead__lbl">Markten</span>' + (arr(p.markets).length ? arr(p.markets).map(function (m) { return '<span class="tag">' + esc(m) + '</span>'; }).join('') : '<span class="muted">Nog geen markten. Voeg ze hieronder toe.</span>') + '</div>') +
     '</div><div class="phead__actions">' + actions + '<button class="btn btn--success" type="button" data-href="#contact/nieuw/' + esc(p.id) + '">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact</span></button></div></div>';
 }
+function contactHead(c, actions) {
+  var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
+  var meta = [];
+  if (c.email) meta.push('<a href="' + esc(mailUrl(c)) + '">' + esc(c.email) + '</a>');
+  if (c.phone) meta.push('<a href="tel:' + esc(String(c.phone).replace(/[^+\d]/g, '')) + '">' + esc(c.phone) + '</a>');
+  if (c.linkedin) meta.push('<a href="' + esc(/^https?:\/\//i.test(c.linkedin) ? c.linkedin : 'https://' + c.linkedin) + '" target="_blank" rel="noopener">LinkedIn</a>');
+  meta.push(last ? 'Laatst gesproken ' + esc(fmtDate(last)) : 'Nog niet gesproken');
+  return '<div class="crumbbar"><a class="crumb" href="#contacten">' + icon('chevron-left', 'icon--12') + 'Contacten</a>' + saveState() + '</div>' +
+    '<div class="base-container phead" id="dhead"><span class="avatar avatar--lg tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span>' +
+    '<div class="phead__main"><div class="phead__title"><h1>' + esc(fullName(c)) + '</h1>' + (c.recurring ? '<span class="recurring-mark">' + icon('clock', 'icon--12') + 'elke ' + esc(c.interval_months) + ' mnd</span>' : '') + '</div>' +
+    '<div class="phead__sub">' + (c.role ? esc(c.role) : '') + (p ? (c.role ? '<span class="phead__dot" aria-hidden="true">·</span>' : '') + '<a href="#partij/' + esc(p.id) + '">' + typeDot(t) + esc(p.name) + '</a>' : '') + '</div>' +
+    '<div class="phead__meta">' + meta.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+    '</div><div class="phead__actions">' + actions + '</div></div>';
+}
+function saveState() { return '<span class="savestate savestate--saved" id="savestate" role="status" aria-live="polite">' + icon('check-circle', 'icon--14') + '<span>Wijzigingen worden automatisch opgeslagen</span></span>'; }
+function setSaveState(st, msg) {
+  var el = $('#savestate'); if (!el) return;
+  var m = { pending: ['clock', 'Wijzigingen…'], saving: ['clock', 'Opslaan…'], saved: ['check-circle', 'Opgeslagen'], error: ['alert', msg || 'Niet opgeslagen'] }[st];
+  el.className = 'savestate savestate--' + st; el.innerHTML = icon(m[0], 'icon--14') + '<span>' + esc(m[1]) + '</span>';
+}
+function crumbBack() {
+  var h = backHash(), label = { contacten: 'Contacten', partijen: 'Partijen', pipeline: 'Sales pipeline', actielijst: 'Actielijst', instellingen: 'Instellingen' }[h.split('/')[0]] || 'Terug';
+  if (/^partij\//.test(h) && IX.party[h.split('/')[1]]) label = IX.party[h.split('/')[1]].name;
+  if (/^contact\//.test(h) && IX.contact[h.split('/')[1]]) label = fullName(IX.contact[h.split('/')[1]]);
+  return '<div class="crumbbar"><a class="crumb" href="#' + esc(h) + '">' + icon('chevron-left', 'icon--12') + esc(label) + '</a></div>';
+}
+function addBar(act, again) {
+  return '<div class="actionbar-bottom"><button class="btn btn--primary" type="button" data-act="' + act + '">' + icon('check', 'icon--14') + '<span class="btn__text">Toevoegen</span></button>' +
+    (again ? '<button class="btn" type="button" data-act="' + act + '" data-again="1">' + icon('plus', 'icon--14') + '<span class="btn__text">Toevoegen en nog een</span></button>' : '') +
+    '<button class="btn btn--plain" type="button" data-act="back"><span class="btn__text">Annuleren</span></button></div>';
+}
+/* waar 'terug' heen gaat na toevoegen of annuleren: de pagina waar je vandaan kwam */
+var prevHash = '';
+function backHash() {
+  var h = prevHash.replace(/^#/, '');
+  if (!h || /\/nieuw/.test(h)) h = route.view === 'partij' ? (lastList || 'partijen') : 'contacten';
+  return h;
+}
+
+/* ---------- AUTOMATISCH OPSLAAN ---------- */
+var Auto = { timer: null, busy: false, queued: null, needRefresh: false };
+function onEditPage() { return (route.view === 'contact' || route.view === 'partij') && route.id && route.id !== 'nieuw' && !!($('#f-contact') || $('#f-party')); }
+function autosaveSoon(delay) {
+  if (!onEditPage()) return;
+  dirty = true; setSaveState('pending');
+  clearTimeout(Auto.timer); Auto.timer = setTimeout(autosaveNow, delay == null ? 700 : delay);
+}
+/* leest het formulier direct (ook vlak voor het wisselen van pagina) en slaat daarna op */
+function autosaveNow() {
+  clearTimeout(Auto.timer); Auto.timer = null;
+  var job = $('#f-contact') ? contactJob(route.id) : $('#f-party') ? partyJob(route.id) : null;
+  if (!job) return;
+  if (job.error) { setSaveState('error', job.error); return; }
+  if (Auto.busy) { Auto.queued = job; return; }
+  runJob(job);
+}
+async function runJob(job) {
+  Auto.busy = true; setSaveState('saving');
+  try {
+    var saved = await Store.update(job.table, job.id, job.row);
+    Object.assign(job.table === 'contacts' ? IX.contact[job.id] : IX.party[job.id], saved || job.row); index();
+    if (!Auto.queued && !Auto.timer) { dirty = false; if (route.id === job.id) { refreshDetail(); setSaveState('saved'); } }
+  } catch (e) { setSaveState('error', 'Opslaan mislukt'); fail(e); }
+  Auto.busy = false;
+  if (Auto.queued) { var q = Auto.queued; Auto.queued = null; runJob(q); }
+}
+/* zijkolom en kop bijwerken zonder het formulier (en de cursor) te verstoren */
+/* niet vervangen terwijl de muis is ingedrukt: anders gaat de klik op een knop of link verloren */
+var pointerIsDown = false;
+document.addEventListener('pointerdown', function () { pointerIsDown = true; }, true);
+document.addEventListener('pointerup', function () { pointerIsDown = false; if (Auto.needRefresh) setTimeout(refreshDetail, 0); }, true);
+function refreshDetail() {
+  if (!onEditPage()) return;
+  if (pointerIsDown) { Auto.needRefresh = true; return; }
+  Auto.needRefresh = false;
+  var html = route.view === 'contact' ? vContact() : vPartij(), tmp = document.createElement('div'); tmp.innerHTML = html;
+  ['#dhead', '.detail__side'].forEach(function (sel) { var a = $(sel), b = $(sel, tmp); if (a && b && a.innerHTML !== b.innerHTML) a.replaceWith(b); });
+}
+function contactJob(id) {
+  var v = readForm($('#f-contact')), rec = $('#recurring').getAttribute('aria-checked') === 'true';
+  if (!v.last_name) { $('#last_name').parentNode.classList.add('text-field--error'); return { error: 'Niet opgeslagen: vul een achternaam in' }; }
+  return { table: 'contacts', id: id, row: { first_name: v.first_name || null, last_name: v.last_name, role: v.role || null, party_id: v.party_id && v.party_id !== '__new' ? v.party_id : null,
+    email: v.email || null, phone: v.phone || null, linkedin: v.linkedin || null, notes: v.notes || null, recurring: rec, interval_months: +v.interval_months || 3, snooze_until: v.snooze_until || null }, v: v };
+}
+function partyJob(id) {
+  var v = readForm($('#f-party'));
+  if (!v.name) { $('#name').parentNode.classList.add('text-field--error'); return { error: 'Niet opgeslagen: vul een naam in' }; }
+  var row = { name: v.name, type_id: v.type_id || null, city: v.city || null, website: v.website || null, notes: v.notes || null };
+  if (!S.needsMigration) {
+    row.focus = readChips('focus'); row.markets = readTags('markets');
+    row.pipeline_stage = v.pipeline_stage || null; row.pipeline_next_step = v.pipeline_next_step || null; row.pipeline_next_date = v.pipeline_next_date || null;
+    var old = id ? IX.party[id] : null;
+    if (row.pipeline_stage && !(old && old.pipeline_since && old.pipeline_stage)) row.pipeline_since = todayIso();
+  }
+  return { table: 'parties', id: id, row: row };
+}
+
 function pipelineBlock(p) {
   if (!inPipeline(p)) return '';
   var st = STAGE[p.pipeline_stage], open = STAGES.filter(function (x) { return x.key !== 'afgevallen'; });
@@ -736,7 +842,7 @@ function vInstellingen() {
     '<fieldset class="fieldset" style="margin-bottom:0"><div class="fieldset__header">' + icon('user') + 'Account</div>' +
     fieldRow('Je naam', 'display-name', '<span class="text-field text-field--wide"><input class="text-field__input" type="text" id="display-name" maxlength="40" value="' + esc(displayName()) + '" placeholder="Bijv. Ralph" data-act-change="display-name" autocomplete="given-name"></span>') +
     '<p class="form-input__hint">Zo spreekt het CRM je aan in de begroeting en de bovenbalk. Laat leeg voor alleen je e-mailadres.</p>' +
-    '<div class="kv mt16" style="max-width:480px"><dt>Ingelogd als</dt><dd>' + esc(Store.user ? Store.user.email : '') + '</dd><dt>Database</dt><dd>' + (DEMO ? 'Demo (niets wordt opgeslagen)' : 'Supabase') + '</dd></div>' +
+    '<dl class="kv kv--form mt16"><dt>Ingelogd als</dt><dd>' + esc(Store.user ? Store.user.email : '') + '</dd><dt>Database</dt><dd>' + (DEMO ? 'Demo (niets wordt opgeslagen)' : 'Supabase') + '</dd></dl>' +
     '<div class="mt16"><button class="btn" type="button" data-act="logout">' + icon('logout', 'icon--14') + '<span class="btn__text">Uitloggen</span></button></div></fieldset>' +
     '</div></div></section>';
 }
@@ -851,35 +957,21 @@ async function newPartyDialog(prefill) {
   if (dupe) { toast('Partij bestond al; die is gekozen.'); return dupe; }
   try { var p = await Store.insert('parties', r.data); S.parties.push(p); index(); return p; } catch (e) { fail(e); return null; }
 }
-async function actSaveContact(id) {
-  var f = $('#f-contact'), v = readForm(f);
-  var rec = $('#recurring').getAttribute('aria-checked') === 'true';
-  if (!v.last_name) { $('#last_name').parentNode.classList.add('text-field--error'); $('#last_name').focus(); toast('Vul in elk geval een achternaam in.', 'danger'); return; }
-  var row = { first_name: v.first_name || null, last_name: v.last_name, role: v.role || null, party_id: v.party_id && v.party_id !== '__new' ? v.party_id : null,
-    email: v.email || null, phone: v.phone || null, linkedin: v.linkedin || null, notes: v.notes || null, recurring: rec, interval_months: +v.interval_months || 3, snooze_until: v.snooze_until || null };
+async function actSaveContact(again) {
+  var job = contactJob(null);
+  if (job.error) { $('#last_name').focus(); toast('Vul in elk geval een achternaam in.', 'danger'); return; }
   try {
-    if (id) { Object.assign(IX.contact[id], await Store.update('contacts', id, row)); index(); dirty = false; toast('Opgeslagen.'); go('contact/' + id); }
-    else {
-      var c = await Store.insert('contacts', row); S.contacts.push(c);
-      if (v.last_spoken) S.interactions.push(await Store.insert('interactions', { contact_id: c.id, date: v.last_spoken, kind: 'Overig', notes: 'Vastgelegd bij het toevoegen van het contact.' }));
-      index(); dirty = false; toast(fullName(c) + ' toegevoegd.'); go('contact/' + c.id);
-    }
+    var c = await Store.insert('contacts', job.row); S.contacts.push(c);
+    if (job.v.last_spoken) S.interactions.push(await Store.insert('interactions', { contact_id: c.id, date: job.v.last_spoken, kind: 'Overig', notes: 'Vastgelegd bij het toevoegen van het contact.' }));
+    index(); dirty = false; toast(fullName(c) + ' toegevoegd.');
+    if (again) { var keep = job.row.party_id; render(); if (keep && $('#party_id')) $('#party_id').value = keep; var f = $('#first_name'); if (f) f.focus(); window.scrollTo(0, 0); }
+    else go(backHash());
   } catch (e) { fail(e); }
 }
-async function actSaveParty(id) {
-  var v = readForm($('#f-party'));
-  if (!v.name) { $('#name').parentNode.classList.add('text-field--error'); $('#name').focus(); toast('Vul een naam in.', 'danger'); return; }
-  var row = { name: v.name, type_id: v.type_id || null, city: v.city || null, website: v.website || null, notes: v.notes || null };
-  if (!S.needsMigration) {
-    row.focus = readChips('focus'); row.markets = readTags('markets');
-    row.pipeline_stage = v.pipeline_stage || null; row.pipeline_next_step = v.pipeline_next_step || null; row.pipeline_next_date = v.pipeline_next_date || null;
-    var old = id ? IX.party[id] : null;
-    if (row.pipeline_stage && !(old && old.pipeline_since && old.pipeline_stage)) row.pipeline_since = todayIso();
-  }
-  try {
-    if (id) { Object.assign(IX.party[id], await Store.update('parties', id, row)); index(); dirty = false; toast('Opgeslagen.'); go('partij/' + id); }
-    else { var p = await Store.insert('parties', row); S.parties.push(p); index(); dirty = false; toast(p.name + ' toegevoegd.'); go('partij/' + p.id); }
-  } catch (e) { fail(e); }
+async function actSaveParty() {
+  var job = partyJob(null);
+  if (job.error) { $('#name').focus(); toast('Vul een naam in.', 'danger'); return; }
+  try { var p = await Store.insert('parties', job.row); S.parties.push(p); index(); dirty = false; toast(p.name + ' toegevoegd.'); go(backHash()); } catch (e) { fail(e); }
 }
 async function actDeleteContact(id) {
   var c = IX.contact[id];
@@ -986,11 +1078,11 @@ function bindEvents() {
         case 'unsnooze': actSnooze(id, null); break;
         case 'add-interaction': actSpoken(id); break;
         case 'edit-interaction': actEditInteraction(id); break;
-        case 'save-contact': actSaveContact(id); break;
-        case 'save-party': actSaveParty(id); break;
+        case 'save-contact': actSaveContact(!!a.dataset.again); break;
+        case 'save-party': actSaveParty(); break;
         case 'delete-contact': actDeleteContact(id); break;
         case 'delete-party': actDeleteParty(id); break;
-        case 'back': dirty = false; if (history.length > 1) history.back(); else go('actielijst'); break;
+        case 'back': dirty = false; go(backHash()); break;
         case 'type-up': actTypeMove(id, -1); break;
         case 'type-down': actTypeMove(id, 1); break;
         case 'type-delete': actTypeDelete(id); break;
@@ -1004,8 +1096,8 @@ function bindEvents() {
       return;
     }
     var chip = t.closest('[data-chip]');
-    if (chip) { e.preventDefault(); var on = !chip.classList.contains('chip--on'); chip.classList.toggle('chip--on', on); chip.setAttribute('aria-pressed', on); chip.innerHTML = (on ? icon('check', 'icon--12') : '') + esc(chip.dataset.chip); dirty = true; return; }
-    if (t.closest('[data-tag-remove]')) { e.preventDefault(); t.closest('[data-tag]').remove(); dirty = true; return; }
+    if (chip) { e.preventDefault(); var on = !chip.classList.contains('chip--on'); chip.classList.toggle('chip--on', on); chip.setAttribute('aria-pressed', on); chip.innerHTML = (on ? icon('check', 'icon--12') : '') + esc(chip.dataset.chip); dirty = true; autosaveSoon(300); return; }
+    if (t.closest('[data-tag-remove]')) { e.preventDefault(); t.closest('[data-tag]').remove(); dirty = true; autosaveSoon(300); return; }
     if (t.closest('[data-tag-add]')) { e.preventDefault(); addTag(t.closest('.tags')); return; }
     var so = t.closest('[data-sort]');
     if (so) { e.preventDefault(); var sp = so.dataset.sort.split(':'); setSort(sp[0], sp[1]); return; }
@@ -1016,7 +1108,7 @@ function bindEvents() {
     var sw = t.closest('.switch');
     if (sw && sw.id === 'recurring') {
       var on = sw.getAttribute('aria-checked') !== 'true'; sw.setAttribute('aria-checked', on ? 'true' : 'false');
-      $('#rec-fields').classList.toggle('hidden', !on); $('#recurring-hint').textContent = on ? 'Staat op de actielijst' : 'Staat niet op de actielijst'; dirty = true; return;
+      $('#rec-fields').classList.toggle('hidden', !on); $('#recurring-hint').textContent = on ? 'Staat op de actielijst' : 'Staat niet op de actielijst'; dirty = true; autosaveSoon(200); return;
     }
     var h = t.closest('[data-href]');
     if (h && !t.closest('a,button:not([data-href]),input,select,label')) { e.preventDefault(); go(h.dataset.href.replace(/^#/, '')); return; }
@@ -1025,6 +1117,7 @@ function bindEvents() {
   document.addEventListener('change', async function (e) {
     var t = e.target;
     if (t.dataset.filter) { S.filters[t.dataset.filter] = t.type === 'checkbox' ? t.checked : t.value; render(); return; }
+    if (t.dataset.sortSelect) { var sv = t.value.split(':'); S.sort[t.dataset.sortSelect] = { k: sv[0], d: +sv[1] }; try { localStorage.setItem('crm.sort', JSON.stringify(S.sort)); } catch (x) {} render(); return; }
     if (t.hasAttribute('data-afilter')) { go('actielijst' + (t.value === 'alles' ? '' : '/' + t.value)); return; }
     if (t.dataset.typeName) { actTypeRename(t.dataset.typeName, t.value); return; }
     if (t.dataset.actChange === 'show-closed') { S.showClosed = t.checked; render(); return; }
@@ -1032,14 +1125,16 @@ function bindEvents() {
     if (t.dataset.actChange === 'default-interval') { try { S.settings = await Store.saveSettings({ default_interval_months: +t.value }); toast('Opgeslagen.'); } catch (err) { fail(err); } return; }
     if (t.id === 'party_id' && t.value === '__new') {
       var p = await newPartyDialog();
-      if (p) { t.innerHTML = partyOptions(p.id, 'Geen partij') + '<option value="__new">+ Nieuwe partij…</option>'; } else { t.value = ''; }
-      return;
+      if (p) { t.innerHTML = partyOptions(p.id, 'Geen partij') + '<option value="__new">+ Nieuwe partij…</option>'; } else { t.value = (IX.contact[route.id] && IX.contact[route.id].party_id) || ''; }
+      autosaveSoon(0); return;
     }
+    if (t.closest('#f-contact,#f-party') && (t.tagName === 'SELECT' || t.type === 'date')) { autosaveSoon(0); return; }
     if (t.id === 'import-file' && t.files[0]) { actImport(t.files[0]); t.value = ''; }
+    if (t.closest('#f-contact,#f-party') && Auto.timer) autosaveNow();
   });
   document.addEventListener('input', function (e) {
     var t = e.target;
-    if (t.closest('#f-contact,#f-party')) { dirty = true; var tf = t.closest('.text-field--error'); if (tf && t.value.trim()) tf.classList.remove('text-field--error'); }
+    if (t.closest('#f-contact,#f-party') && !t.hasAttribute('data-tag-input')) { dirty = true; var tf = t.closest('.text-field--error'); if (tf && t.value.trim()) tf.classList.remove('text-field--error'); autosaveSoon(t.tagName === 'TEXTAREA' ? 900 : 700); }
     if (t.id === 'zoek' || t.hasAttribute('data-q')) {
       S.q = t.value;
       $all('#zoek,[data-q]').forEach(function (o) { if (o !== t) o.value = t.value; });
@@ -1054,7 +1149,7 @@ function bindEvents() {
     if (e.key === 'Enter' && e.target.hasAttribute && e.target.hasAttribute('data-tag-input')) { e.preventDefault(); e.stopPropagation(); addTag(e.target.closest('.tags')); return; }
     if (e.key === 'Enter' && e.target.id === 'new-type') { e.preventDefault(); actTypeAdd(); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && $('#popup').classList.contains('popup--open')) { var b = $('#popup [data-pbtn="0"]'); if (b) b.click(); }
-    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.closest('#f-contact,#f-party')) { e.preventDefault(); var s = $('[data-act="save-contact"],[data-act="save-party"]'); if (s) s.click(); }
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.closest('#f-contact,#f-party')) { e.preventDefault(); if (onEditPage()) { if (Auto.timer) autosaveNow(); return; } var s = $('[data-act="save-contact"],[data-act="save-party"]'); if (s) s.click(); }
   });
   $('#overlay').addEventListener('click', cancelPopup);
   var dragId = null;
@@ -1062,8 +1157,8 @@ function bindEvents() {
   document.addEventListener('dragend', function () { dragId = null; $all('.pcard--dragging').forEach(function (c) { c.classList.remove('pcard--dragging'); }); $all('.pcol--over').forEach(function (c) { c.classList.remove('pcol--over'); }); });
   document.addEventListener('dragover', function (e) { var b = e.target.closest && e.target.closest('.pcol'); if (!b || !dragId) return; e.preventDefault(); $all('.pcol--over').forEach(function (c) { if (c !== b) c.classList.remove('pcol--over'); }); b.classList.add('pcol--over'); });
   document.addEventListener('drop', function (e) { var b = e.target.closest && e.target.closest('.pcol'); if (!b || !dragId) return; e.preventDefault(); var id = dragId; dragId = null; b.classList.remove('pcol--over'); actStage(id, b.dataset.stage); });
-  window.addEventListener('hashchange', function () { dirty = false; render(); window.scrollTo(0, 0); });
-  window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('hashchange', function (e) { prevHash = (e.oldURL || '').split('#')[1] || ''; dirty = false; render(); window.scrollTo(0, 0); });
+  window.addEventListener('beforeunload', function (e) { if (Auto.timer) autosaveNow(); if (dirty || Auto.busy) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && !dirty && Store.user && Date.now() - S.loadedAt > 60000 && !$('#popup').classList.contains('popup--open')) reload(true); });
   $all('[data-toggle]').forEach(function (tg) { tg.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); var li = tg.closest('.sidenav__item'), open = li.classList.toggle('sidenav__item--open'); tg.setAttribute('aria-expanded', open ? 'true' : 'false'); }); });
   $('#inklappen').addEventListener('click', function (e) { e.preventDefault(); document.body.classList.toggle('sidenav-collapsed'); try { localStorage.setItem('crm.collapsed', document.body.classList.contains('sidenav-collapsed') ? '1' : ''); } catch (x) {} });
