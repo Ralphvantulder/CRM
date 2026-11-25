@@ -28,6 +28,7 @@
 .person__text{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .person__name{font-weight:500}
 .person__sub{color:var(--secondary-text)}
+.person__sub--m{display:none} /* functie naast de naam alleen op de telefoon; op de pc eigen kolom */
 
 /* opvolgstatus: kleine labels in tabellen */
 .due{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:999px;font:600 var(--text-detail)/var(--lh-detail) var(--font);white-space:nowrap;color:var(--n600);background:var(--n100)}
@@ -337,6 +338,7 @@ body.auth-mode .auth{display:flex}
   .topnav__user .icon--14{display:block}
 
   .hide-m{display:none!important}
+  .person__sub--m{display:inline}
   .only-m{display:flex}
   .tabbar{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:5000;
     background:var(--container-background);border-top:1px solid var(--border);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}

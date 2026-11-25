@@ -258,8 +258,8 @@ function render() {
 
 /* ---------- gedeelde bouwstenen ---------- */
 function actionbar(title, actions) { return '<div class="actionbar"><h1 class="actionbar__title">' + esc(title) + '</h1><div class="actionbar__actions">' + (actions || '') + '</div></div>'; }
-function personCell(c, sub) {
-  return '<div class="person"><span class="person__avatar avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub">· ' + esc(sub) + '</span>' : '') + '</span></div>';
+function personCell(c, sub, subCls) {
+  return '<div class="person"><span class="person__avatar avatar tone-' + contactTone(c) + '">' + esc(initials(fullName(c))) + '</span><span class="person__text"><span class="person__name">' + esc(fullName(c)) + '</span>' + (sub ? ' <span class="person__sub' + (subCls ? ' ' + subCls : '') + '">· ' + esc(sub) + '</span>' : '') + '</span></div>';
 }
 function partyCell(p, stageCls) { return '<div class="person"><span class="person__avatar person__avatar--party">' + icon('building') + '</span><span class="person__text person__name">' + esc(p.name) + '</span>' + (stageCls ? '<span class="' + stageCls + '">' + stageLabel(p) + '</span>' : stageLabel(p)) + '</div>'; }
 function spokenBtn(c) { return '<button class="btn btn--primary" type="button" data-act="spoken" data-id="' + esc(c.id) + '" title="Contactmoment vastleggen">' + icon('check', 'icon--14') + '<span class="btn__text">Gesproken</span></button>'; }
@@ -375,10 +375,10 @@ function vContacten() {
     '<select class="select" data-filter="cparty" aria-label="Partij">' + partyOptions(F.cparty, 'Alle partijen') + '</select>' +
     '<label class="checkbox"><input type="checkbox" data-filter="crec"' + (F.crec ? ' checked' : '') + '>Alleen herhaaldelijk</label>' +
     '<span class="filterbar__count">' + plural(list.length, 'contact', 'contacten') + '</span></div>';
-  var body = list.length ? '<div class="table-container"><table class="table table--stack"><colgroup><col><col class="hide-m"><col class="c-type hide-m"><col class="c-date hide-m"><col class="c-rec hide-m"><col class="c-due"></colgroup><thead><tr><th>Naam</th><th class="hide-m">Partij</th><th class="hide-m">Type</th><th class="hide-m">Laatst gesproken</th><th class="hide-m">Herhaaldelijk</th><th>Volgende keer</th></tr></thead><tbody>' +
+  var body = list.length ? '<div class="table-container"><table class="table table--stack"><colgroup><col><col class="hide-m"><col class="hide-m"><col class="c-type hide-m"><col class="c-date hide-m"><col class="c-rec hide-m"><col class="c-due"></colgroup><thead><tr><th>Naam</th><th class="hide-m">Functie</th><th class="hide-m">Partij</th><th class="hide-m">Type</th><th class="hide-m">Laatst gesproken</th><th class="hide-m">Herhaaldelijk</th><th>Volgende keer</th></tr></thead><tbody>' +
     list.map(function (c) {
       var p = partyOf(c), t = typeOfParty(p), last = lastContact(c);
-      return '<tr class="table__row--link" data-href="#contact/' + esc(c.id) + '"><td>' + personCell(c, c.role) + '</td><td class="hide-m">' + esc(p ? p.name : '') + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td>' +
+      return '<tr class="table__row--link" data-href="#contact/' + esc(c.id) + '"><td>' + personCell(c, c.role, 'person__sub--m') + '</td><td class="hide-m">' + (c.role ? esc(c.role) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + esc(p ? p.name : '') + '</td><td class="hide-m">' + esc(t ? t.name : '') + '</td>' +
         '<td class="hide-m">' + (last ? esc(fmtDate(last)) : '<span class="muted">—</span>') + '</td><td class="hide-m">' + (c.recurring ? '<span class="recurring-mark">' + icon('check') + esc(c.interval_months) + ' mnd</span>' : '<span class="muted">Nee</span>') + '</td><td>' + dueLabel(c) + '</td></tr>';
     }).join('') + '</tbody></table></div>'
     : '<div class="base-container">' + (S.contacts.length ? emptyState('Geen contacten gevonden', 'Pas de filters of de zoekterm aan.') : emptyState('Nog geen contacten', 'Voeg je eerste contact toe, of importeer een bestand via Instellingen.', '<button class="btn btn--success" type="button" data-href="#contact/nieuw">' + icon('plus', 'icon--14') + '<span class="btn__text">Contact toevoegen</span></button>')) + '</div>';
