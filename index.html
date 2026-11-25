@@ -507,6 +507,7 @@ body.auth-mode .topnav,body.auth-mode .sidenav,body.auth-mode .main,body.auth-mo
 .auth{min-height:100vh;display:none;align-items:center;justify-content:center;padding:16px}
 body.auth-mode .auth{display:flex}
 .auth__box{width:400px;max-width:100%;padding:32px}
+.brand-logo{width:32px;height:32px;display:block;flex-shrink:0}
 .auth__brand{display:flex;align-items:center;gap:8px;color:var(--b600);font-weight:700;font-size:20px;margin-bottom:24px}
 .auth__title{font:600 var(--text-title2)/var(--lh-title2) var(--font);color:var(--primary-title);margin-bottom:4px}
 .auth__lead{color:var(--secondary-text);margin-bottom:24px}
@@ -802,6 +803,7 @@ body.auth-mode .auth{display:flex}
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
+    <symbol id="i-logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#eef5fe"/><path d="M19 13h18a7 7 0 0 1 7 7v8a7 7 0 0 1-7 7H23l-7 6v-6.6A7 7 0 0 1 12 28v-8a7 7 0 0 1 7-7Z" fill="#081245"/><path d="M29 24h17a7 7 0 0 1 7 7v9a7 7 0 0 1-4 6.3V52l-7-5H29a7 7 0 0 1-7-7v-9a7 7 0 0 1 7-7Z" fill="#0073e6" stroke="#eef5fe" stroke-width="3" stroke-linejoin="round"/><circle cx="31" cy="35.5" r="2.2" fill="#fff"/><circle cx="37.5" cy="35.5" r="2.2" fill="#fff"/><circle cx="44" cy="35.5" r="2.2" fill="#fff"/></symbol>
     <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
     <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l2.5-8h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 13h5l1.5 3h5L16 13h5"/></symbol>
@@ -854,7 +856,7 @@ body.auth-mode .auth{display:flex}
   <div class="topnav__items">
     <div class="topnav__left">
       <a class="topnav__branding" href="#actielijst">
-        <span class="topnav__branding-mark" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
+        <svg class="brand-logo" aria-hidden="true"><use href="#i-logo"/></svg>
         <span class="topnav__branding-text">CRM</span>
       </a>
       <span class="state-label state-label--warning hidden" id="demo-flag">Demo</span>
@@ -929,7 +931,7 @@ body.auth-mode .auth{display:flex}
 <!-- ===================== INLOGGEN ===================== -->
 <div class="auth">
   <div class="base-container auth__box">
-    <div class="auth__brand"><span class="topnav__branding-mark" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>CRM</div>
+    <div class="auth__brand"><svg class="brand-logo" aria-hidden="true"><use href="#i-logo"/></svg>CRM</div>
     <div id="auth-box"></div>
   </div>
 </div>
