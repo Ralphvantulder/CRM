@@ -14,5 +14,5 @@ for k, v in parts.items():
 assert '%%SUPABASE' not in js
 (out/'index.html').write_text(h)
 (out/'icon.svg').write_text((src/'logo.svg').read_text())  # logo: bron in src/logo.svg (ook als symbool i-logo in icons.svg)
-(out/'manifest.webmanifest').write_text('{"name":"CRM","short_name":"CRM","start_url":"./#overzicht","scope":"./","display":"standalone","background_color":"#fafaf9","theme_color":"#ffffff","icons":[{"src":"icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icon-512.png","sizes":"512x512","type":"image/png"},{"src":"icon.svg","sizes":"any","type":"image/svg+xml"}]}\n')
+(out/'manifest.webmanifest').write_text('{"name":"CRM","short_name":"CRM","start_url":"./#overzicht","scope":"./","display":"standalone","background_color":"#fafaf9","theme_color":"#ffffff","icons":[{"src":"icon-192.png?v=2","sizes":"192x192","type":"image/png"},{"src":"icon-512.png?v=2","sizes":"512x512","type":"image/png"},{"src":"icon.svg","sizes":"any","type":"image/svg+xml"}]}\n')
 print('ok', len(h))
