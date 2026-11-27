@@ -1140,8 +1140,8 @@ var STAGES = [
   { key: 'benaderd', title: 'Benaderd' },
   { key: 'in_gesprek', title: 'In gesprek' },
   { key: 'voorstel', title: 'Voorstel' },
-  { key: 'gewonnen', title: 'Gewonnen', closed: true },
-  { key: 'afgevallen', title: 'Afgevallen', closed: true }
+  { key: 'gewonnen', title: 'Project bezig', last: true },
+  { key: 'afgevallen', title: 'Geen project', closed: true }
 ];
 var FOCUS = ['VC', 'MKB', 'Mid-cap', 'Large-cap'];
 var STAGE = {}; STAGES.forEach(function (st, i) { st.i = i; STAGE[st.key] = st; });
@@ -1669,7 +1669,7 @@ function migrationAlert() {
 }
 function vPipeline() {
   var list = S.parties.filter(function (p) { return inPipeline(p) && matchQParty(p); });
-  var stages = STAGES.filter(function (st) { return S.showClosed || !st.closed; });
+  var stages = STAGES.filter(function (st) { return !st.closed; });
   var closedN = S.parties.filter(function (p) { return inPipeline(p) && STAGE[p.pipeline_stage].closed; }).length;
   var cols = stages.map(function (st) {
     var cards = list.filter(function (p) { return p.pipeline_stage === st.key; }).sort(function (a, b) {
@@ -1693,7 +1693,7 @@ function vPipeline() {
   return '<section class="container container--wide">' + actionbar('Sales pipeline', '<button class="btn btn--success" type="button" data-act="new-lead">' + icon('plus', 'icon--14') + '<span class="btn__text">Nieuwe partij</span></button>') +
     (S.needsMigration ? migrationAlert() : '') + pipelineTabs('pipeline') +
     '<div class="filterbar">' + searchField('q-pl', 'Zoek in de pipeline') + '<span class="muted">' + plural(total, 'lopende partij', 'lopende partijen') + '</span>' +
-    '<label class="checkbox filterbar__count"><input type="checkbox" data-act-change="show-closed"' + (S.showClosed ? ' checked' : '') + '>Gewonnen en afgevallen tonen' + (closedN ? ' (' + closedN + ')' : '') + '</label></div>' +
+    (closedN ? '<span class="muted filterbar__count">' + plural(closedN, 'partij', 'partijen') + ' met geen project niet getoond</span>' : '') + '</div>' +
     '<div class="pboard">' + cols + '</div>' +
     '<p class="form-input__hint mt16 hide-m">Sleep een kaart naar een andere fase, of kies de fase via de pijl op de kaart. Een partij in de pipeline staat ook gewoon bij Partijen en haar mensen bij Contacten.</p></section>';
 }
@@ -2089,7 +2089,7 @@ function pipelineBlock(p) {
   if (!inPipeline(p)) return '';
   var st = STAGE[p.pipeline_stage], open = STAGES.filter(function (x) { return x.key !== 'afgevallen'; });
   var lost = st.key === 'afgevallen', cur = open.findIndex(function (x) { return x.key === st.key; });
-  var next = !st.closed ? STAGES[st.i + 1] : null, d = parseDate(p.pipeline_next_date);
+  var next = !st.closed && !st.last ? STAGES[st.i + 1] : null, d = parseDate(p.pipeline_next_date);
   return '<div class="base-container side-block"><div class="side-block__title">Sales pipeline' + (p.pipeline_since ? '<span class="muted" style="font-weight:400;font-size:12px">sinds ' + esc(fmtDate(p.pipeline_since)) + '</span>' : '') + '</div>' +
     '<div class="psteps' + (lost ? ' psteps--lost' : '') + '" role="img" aria-label="Fase: ' + esc(st.title) + '">' + open.map(function (x, i) { return '<span class="psteps__bar' + (!lost && i <= cur ? ' psteps__bar--on' : '') + '"></span>'; }).join('') + '</div>' +
     '<div class="psteps__labels"><span>' + esc(open[0].title) + '</span><strong>' + esc(st.title) + '</strong><span>' + esc(open[open.length - 1].title) + '</span></div>' +
